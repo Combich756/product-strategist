@@ -1,0 +1,10 @@
+/cases/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+.envrc
+*.pem
+*.key
+*.sqlite3*

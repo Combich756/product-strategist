@@ -1,0 +1,230 @@
+{
+  "before": {
+    "weekly": {
+      "source": "S002",
+      "numerator_column": "connected_48h",
+      "denominator_column": "eligible_orders",
+      "rows": 4,
+      "groups": [
+        {
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": 280,
+          "denominator": 400,
+          "refs": [
+            {
+              "start": 2,
+              "end": 2
+            },
+            {
+              "start": 3,
+              "end": 3
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": 236,
+          "denominator": 400,
+          "refs": [
+            {
+              "start": 4,
+              "end": 4
+            },
+            {
+              "start": 5,
+              "end": 5
+            }
+          ],
+          "percent": 59.0
+        }
+      ]
+    },
+    "platforms": {
+      "source": "S002",
+      "numerator_column": "connected_48h",
+      "denominator_column": "eligible_orders",
+      "rows": 4,
+      "groups": [
+        {
+          "group": {
+            "week": "2026-W41",
+            "platform": "Android"
+          },
+          "numerator": 70,
+          "denominator": 100,
+          "refs": [
+            {
+              "start": 3,
+              "end": 3
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W41",
+            "platform": "iOS"
+          },
+          "numerator": 210,
+          "denominator": 300,
+          "refs": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W42",
+            "platform": "Android"
+          },
+          "numerator": 110,
+          "denominator": 220,
+          "refs": [
+            {
+              "start": 5,
+              "end": 5
+            }
+          ],
+          "percent": 50.0
+        },
+        {
+          "group": {
+            "week": "2026-W42",
+            "platform": "iOS"
+          },
+          "numerator": 126,
+          "denominator": 180,
+          "refs": [
+            {
+              "start": 4,
+              "end": 4
+            }
+          ],
+          "percent": 70.0
+        }
+      ]
+    }
+  },
+  "after": {
+    "weekly": {
+      "source": "S005",
+      "numerator_column": "connected_48h",
+      "denominator_column": "eligible_orders",
+      "rows": 4,
+      "groups": [
+        {
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": 280,
+          "denominator": 400,
+          "refs": [
+            {
+              "start": 2,
+              "end": 2
+            },
+            {
+              "start": 3,
+              "end": 3
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": 280,
+          "denominator": 400,
+          "refs": [
+            {
+              "start": 4,
+              "end": 4
+            },
+            {
+              "start": 5,
+              "end": 5
+            }
+          ],
+          "percent": 70.0
+        }
+      ]
+    },
+    "platforms": {
+      "source": "S005",
+      "numerator_column": "connected_48h",
+      "denominator_column": "eligible_orders",
+      "rows": 4,
+      "groups": [
+        {
+          "group": {
+            "week": "2026-W41",
+            "platform": "Android"
+          },
+          "numerator": 70,
+          "denominator": 100,
+          "refs": [
+            {
+              "start": 3,
+              "end": 3
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W41",
+            "platform": "iOS"
+          },
+          "numerator": 210,
+          "denominator": 300,
+          "refs": [
+            {
+              "start": 2,
+              "end": 2
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W42",
+            "platform": "Android"
+          },
+          "numerator": 154,
+          "denominator": 220,
+          "refs": [
+            {
+              "start": 5,
+              "end": 5
+            }
+          ],
+          "percent": 70.0
+        },
+        {
+          "group": {
+            "week": "2026-W42",
+            "platform": "iOS"
+          },
+          "numerator": 126,
+          "denominator": 180,
+          "refs": [
+            {
+              "start": 4,
+              "end": 4
+            }
+          ],
+          "percent": 70.0
+        }
+      ]
+    }
+  }
+}

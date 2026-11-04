@@ -1,0 +1,7 @@
+---
+description: Workflow and evidence rules for the Product Strategist
+alwaysApply: true
+---
+
+For product strategy cases, read the root AGENTS.md before taking action.
+Start with the case CLI context and follow agent/WORKFLOW.md.
