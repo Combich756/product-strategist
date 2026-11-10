@@ -18,6 +18,32 @@
           "start": 5,
           "end": 5
         }
+      ],
+      "rate_checks": [
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        }
       ]
     },
     {
@@ -31,6 +57,60 @@
           "source": "S005",
           "start": 2,
           "end": 5
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W41",
+            "platform": "iOS"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 210,
+            "denominator": 300
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W41",
+            "platform": "Android"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 70,
+            "denominator": 100
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W42",
+            "platform": "iOS"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 126,
+            "denominator": 180
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W42",
+            "platform": "Android"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 154,
+            "denominator": 220
+          }
         }
       ]
     },
@@ -116,6 +196,32 @@
           "source": "S005",
           "start": 4,
           "end": 5
+        }
+      ],
+      "cell_checks": [
+        {
+          "source": "S005",
+          "line": 5,
+          "column": "week",
+          "expected": "2026-W42"
+        },
+        {
+          "source": "S005",
+          "line": 5,
+          "column": "platform",
+          "expected": "Android"
+        },
+        {
+          "source": "S005",
+          "line": 5,
+          "column": "connected_48h",
+          "expected": "154"
+        },
+        {
+          "source": "S005",
+          "line": 5,
+          "column": "eligible_orders",
+          "expected": "220"
         }
       ]
     }

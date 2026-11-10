@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import hashlib
 import http.client
 import re
 import sqlite3
@@ -10,8 +11,8 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
 
-from . import analysis, checkpoints, sources, state
-from .report import report
+from . import analysis, checkpoints, recovery, sources, state
+from .report import claim_evidence, report
 
 
 def source_or_error(data, key):
@@ -92,12 +93,13 @@ def save(folder, args):
             return state.summary(data)
         checkpoints.need(state.next_stage(data) == stage,
                          f"Следующий этап — {state.next_stage(data)}. Для исправления используйте reopen.")
-        checkpoints.VALIDATORS[stage](data, artifact)
+        review = recovery.check_draft(data, stage, artifact)
         data["checkpoints"][stage] = artifact
         if stage == "decision" and data["impact"]:
             data["impact"]["review_required"] = False
-        state.event(data, "save", stage=stage)
-        return state.summary(data)
+        state.event(data, "save", stage=stage,
+                    artifact_sha256=hashlib.sha256(state.dump(artifact).encode()).hexdigest())
+        return {**state.summary(data), "warnings": review["warnings"]}
 
 
 def reopen(folder, args):
@@ -141,10 +143,12 @@ def log(folder, args):
         checkpoints.need(args.currency is None, "Валюта указывается вместе с суммой.")
     for value in (args.seconds, args.input_tokens, args.output_tokens):
         checkpoints.need(value is None or value >= 0, "Метрики не могут быть отрицательными.")
+    checkpoints.need(args.attempts >= 1, "attempts: нужно положительное число.")
     with state.case(folder, write=True, while_paused=True) as data:
         state.event(data, "log", kind=args.kind, label=args.label, seconds=args.seconds,
                     input_tokens=args.input_tokens, output_tokens=args.output_tokens,
-                    amount=str(amount) if amount is not None else None, currency=args.currency)
+                    amount=str(amount) if amount is not None else None, currency=args.currency,
+                    outcome=args.outcome, attempts=args.attempts)
         return state.summary(data)
 
 
@@ -162,10 +166,13 @@ def cost(data):
             currency = item["currency"]
             amounts[currency] = amounts.get(currency, Decimal(0)) + Decimal(item["amount"])
     return {
+        "measurement_status": "logged_only" if any(item["action"] == "log" for item in data["journal"]) else "unmeasured",
         "known_logged_cost": {currency: str(amount) for currency, amount in amounts.items()},
         "logged_seconds": totals, "log_entries_without_cost": unknown,
         "successful_ingest_ms": sum(item.get("duration_ms", 0) for item in data["journal"]),
         "entries": [item for item in data["journal"] if item["action"] == "log"],
+        "note": "Учтены только записи log. Ноль записей не означает нулевую стоимость. "
+                "Интервалы между сохранениями не измеряют время модели; API-вызовы IDE автоматически не видны.",
     }
 
 
@@ -190,11 +197,23 @@ def inspect(folder, args):
                         "lines": [{"line": index + 1, "text": lines[index]} for index in range(args.start - 1, last)]}
             case "find":
                 return analysis.find(data, args.query, args.limit)
+            case "claim":
+                return claim_evidence(data, args.claim, args.revision)
             case "rates":
                 source = source_or_error(data, args.source)
                 checkpoints.need(source["status"] == "active", "Используйте активный источник.")
-                return {"source": args.source,
-                        **analysis.rates(source, args.by, args.numerator, args.denominator)}
+                result = analysis.select_groups(
+                    analysis.rates(source, args.by, args.numerator, args.denominator), args.group)
+                return ({"source": args.source, **analysis.rate_evidence(args.source, result)} if args.evidence
+                        else {"source": args.source, **result})
+            case "cells":
+                source = source_or_error(data, args.source)
+                checkpoints.need(source["status"] == "active", "Используйте активный источник.")
+                return analysis.cells(args.source, source, args.rows, args.columns)
+            case "check":
+                return recovery.check_draft(data, args.stage, state.load_json(args.input))
+            case "recover":
+                return recovery.recover(folder, data)
             case "history":
                 return data["history"]
             case "journal":
@@ -252,6 +271,8 @@ def parser():
     sub.add_argument("--output-tokens", type=int)
     sub.add_argument("--amount")
     sub.add_argument("--currency")
+    sub.add_argument("--outcome", choices=("success", "timeout", "error", "cancelled", "unknown"), default="unknown")
+    sub.add_argument("--attempts", type=int, default=1)
     sub = command("view", "Посмотреть строки снимка")
     sub.add_argument("source")
     sub.add_argument("--start", type=int, default=1)
@@ -259,11 +280,24 @@ def parser():
     sub = command("find", "Найти строки в активных источниках")
     sub.add_argument("query")
     sub.add_argument("--limit", type=int, default=10)
+    sub = command("claim", "Показать вывод, фрагменты источников и пересчёт долей")
+    sub.add_argument("claim", help="ID вывода, например C1")
+    sub.add_argument("--revision", type=int, help="Архивная ревизия исследования из history")
     sub = command("rates", "Пересчитать доли по CSV/TSV")
     sub.add_argument("source")
     sub.add_argument("--by", nargs="+", default=[])
     sub.add_argument("--numerator", required=True)
     sub.add_argument("--denominator", required=True)
+    sub.add_argument("--evidence", action="store_true", help="Выдать готовые refs и rate_checks для вывода")
+    sub.add_argument("--group", action="append", default=[], metavar="COLUMN=VALUE",
+                     help="Выбрать группы из --by; можно повторить")
+    sub = command("cells", "Получить проверяемые значения ячеек и готовые ссылки")
+    sub.add_argument("source")
+    sub.add_argument("--rows", nargs="+", type=int, required=True)
+    sub.add_argument("--columns", nargs="+", required=True)
+    sub = command("check", "Проверить черновик без сохранения и без модели")
+    sub.add_argument("stage", choices=state.STAGES)
+    sub.add_argument("input", help="Путь к JSON-черновику")
     for name, help_ in (("report", "Вывести отчёт Markdown"), ("followup", "Проверить сроки обязательств")):
         sub = command(name, help_)
         sub.add_argument("--as-of", type=lambda value: date.fromisoformat(value).isoformat(),
@@ -273,6 +307,7 @@ def parser():
         ("sources", "Показать реестр источников"), ("history", "Показать архив решений"),
         ("journal", "Показать журнал изменений"), ("cost", "Показать учтённые затраты"),
         ("pause", "Поставить работу на паузу"), ("resume", "Снять паузу"),
+        ("recover", "Найти сохранённые и незавершённые этапы после сбоя"),
     ):
         command(name, help_)
     return app
@@ -295,7 +330,7 @@ def main(argv=None):
         else:
             print(state.dump(output))
     except (state.UserError, OSError, ValueError, LookupError, csv.Error, InvalidOperation,
-            sqlite3.Error, http.client.HTTPException) as error:
+            sqlite3.Error, http.client.HTTPException, RecursionError) as error:
         print(state.dump({"error": str(error)}), file=sys.stderr)
         return 2
     return 0

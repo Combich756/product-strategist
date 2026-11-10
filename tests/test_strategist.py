@@ -26,7 +26,8 @@ class CaseTests(unittest.TestCase):
             code = main(["--root", str(self.root), command, "test", *args])
         if error is None:
             self.assertEqual(code, 0, stderr.getvalue())
-            return json.loads(stdout.getvalue())
+            result = stdout.getvalue()
+            return result if command == "report" else json.loads(result)
         self.assertEqual(code, 2)
         self.assertIn(error, json.loads(stderr.getvalue())["error"])
 
@@ -93,6 +94,59 @@ class CaseTests(unittest.TestCase):
         claim["scope"] = "demo"
         self.save("research", research)
         self.save("options", {"comparison": "один", "options": []}, error="минимум 3")
+
+    def test_rate_check_validates_counts_and_complete_citations(self):
+        source = self.local("sample.csv", "week,yes,all\na,9,10\na,1,90\nb,0,0\n")["source"]
+        self.save("brief", self.brief())
+        research = self.research(source)
+        claim = research["claims"][0]
+        claim["refs"][0].update(start=2, end=2)
+        check = {
+            "source": source, "group": {"week": "a"}, "numerator": "yes", "denominator": "all",
+            "expected": {"numerator": 11, "denominator": 100},
+        }
+        claim["rate_checks"] = [check]
+        revision = self.call("status")["revision"]
+        self.save("research", research, error="пересчёт дал 10/100")
+        check["expected"]["numerator"] = 10
+        self.save("research", research, error="строки расчёта 3–3 выходят за границы")
+        self.assertEqual(self.call("status")["revision"], revision)
+        claim["refs"][0]["end"] = 3
+        self.save("research", research)
+
+        verified = self.call("claim", "C1")
+        self.assertEqual(verified["verified_rates"][0]["percent"], 10)
+        self.assertEqual(verified["sources"][0]["lines"], [
+            {"line": 2, "text": "a,9,10"}, {"line": 3, "text": "a,1,90"},
+        ])
+        self.assertIn("week=a — 10/100 = 10%", self.call("report"))
+
+    def test_rate_check_uses_the_original_snapshot_after_replacement(self):
+        first = self.local("sample.csv", "yes,all\n2,4\n")["source"]
+        self.save("brief", self.brief())
+        research = self.research(first)
+        claim = research["claims"][0]
+        claim["refs"][0].update(start=2, end=2)
+        check = {
+            "source": first, "group": {}, "numerator": "yes", "denominator": "all",
+            "expected": {"numerator": 2, "denominator": 4},
+        }
+        claim["rate_checks"] = [check]
+        self.save("research", research)
+        second = self.local("sample.csv", "yes,all\n3,4\n")["source"]
+        impact = self.call("status")["impact"]
+        self.assertEqual(impact["affected_claims"], ["C1"])
+        self.call("claim", "C1", error="отсутствует в выбранном исследовании")
+        claim["refs"][0]["source"] = second
+        check["source"] = second
+        check["expected"]["numerator"] = 3
+        self.save("research", research)
+
+        before = self.call("claim", "C1", "--revision", str(impact["baseline_revision"]))
+        self.assertTrue(before["archived"])
+        self.assertEqual(before["sources"][0]["current_status"], "superseded")
+        self.assertEqual(before["verified_rates"][0]["percent"], 50)
+        self.assertEqual(self.call("claim", "C1")["verified_rates"][0]["percent"], 75)
 
     def test_refuses_file_outside_case_and_unapproved_url(self):
         (self.root / "test" / "outside.txt").write_text("вне материалов", encoding="utf-8")

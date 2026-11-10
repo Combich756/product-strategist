@@ -86,6 +86,11 @@ def replay(root, name, until, reports):
     save("strategy", "strategy_v2")
     write("03-after.md", run("report", "--as-of", AS_OF, parse=False))
     write("04-calculations.json", json.dumps({"before": first, "after": second}, ensure_ascii=False, indent=2) + "\n")
+    audit = {
+        "before": run("claim", "C1", "--revision", str(impact["baseline_revision"])),
+        "after": run("claim", "C1"),
+    }
+    write("05-claim-audit.json", json.dumps(audit, ensure_ascii=False, indent=2) + "\n")
     print(f"Новая рекомендация O1; следующий этап: {run('status')['next']}.")
     print(f"Время воспроизведения CLI: {perf_counter() - started:.2f} с. Вызовов моделей: 0.")
 

@@ -14,6 +14,11 @@ class UserError(Exception):
     pass
 
 
+def need(condition, message):
+    if not condition:
+        raise UserError(message)
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -23,10 +28,20 @@ def dump(value):
 
 
 def load_json(path):
+    path = Path(path)
+    need(path.stat().st_size <= 1_000_000, "JSON-артефакт больше 1 МБ.")
     def reject_constant(value):
         raise ValueError(f"Не допускается числовое значение {value}")
 
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"), parse_constant=reject_constant)
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            need(key not in result, f"JSON: повторное поле {key!r}.")
+            result[key] = value
+        return result
+
+    return json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=reject_constant,
+                      object_pairs_hook=unique_fields)
 
 
 def case_dir(root, name):

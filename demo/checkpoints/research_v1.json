@@ -18,6 +18,32 @@
           "start": 5,
           "end": 5
         }
+      ],
+      "rate_checks": [
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 236,
+            "denominator": 400
+          }
+        }
       ]
     },
     {
@@ -31,6 +57,60 @@
           "source": "S002",
           "start": 2,
           "end": 5
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W41",
+            "platform": "iOS"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 210,
+            "denominator": 300
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W41",
+            "platform": "Android"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 70,
+            "denominator": 100
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W42",
+            "platform": "iOS"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 126,
+            "denominator": 180
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W42",
+            "platform": "Android"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 110,
+            "denominator": 220
+          }
         }
       ]
     },
@@ -104,13 +184,39 @@
       "id": "C7",
       "type": "hypothesis",
       "scope": "demo",
-      "text": "Задержка телеметрии могла занизить W42 Android",
+      "text": "Полнота регистрации первых сессий Android W42 не проверена: возможна потеря событий. Смена состава заказов сама по себе не доказывает сбой.",
       "limits": "Нужна сверка агрегата с независимым источником событий после закрытия окна",
       "refs": [
         {
           "source": "S002",
           "start": 4,
           "end": 5
+        }
+      ],
+      "cell_checks": [
+        {
+          "source": "S002",
+          "line": 5,
+          "column": "week",
+          "expected": "2026-W42"
+        },
+        {
+          "source": "S002",
+          "line": 5,
+          "column": "platform",
+          "expected": "Android"
+        },
+        {
+          "source": "S002",
+          "line": 5,
+          "column": "connected_48h",
+          "expected": "110"
+        },
+        {
+          "source": "S002",
+          "line": 5,
+          "column": "eligible_orders",
+          "expected": "220"
         }
       ]
     }

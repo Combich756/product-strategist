@@ -1,6 +1,46 @@
 """Render the saved artifacts for human review."""
 
-from .state import followup, next_stage
+import re
+from html import escape
+
+from .checkpoints import cell_checks, rate_checks
+from .sources import source_lines
+from .state import followup, need, next_stage
+
+
+def claim_evidence(state, claim_id, revision):
+    saved = state["checkpoints"]
+    if revision is not None:
+        archive = next((entry for entry in state["history"] if entry["revision"] == revision), None)
+        need(archive is not None, f"Архивная ревизия {revision} отсутствует. Список ревизий: history.")
+        saved = archive["checkpoints"]
+    claim = next((item for item in saved.get("research", {}).get("claims", []) if item["id"] == claim_id), None)
+    need(claim is not None, f"Вывод {claim_id} отсутствует в выбранном исследовании.")
+    excerpts = []
+    for ref in claim["refs"]:
+        source = state["sources"][ref["source"]]
+        preview_end = min(ref["end"], ref["start"] + 11)
+        preview = source_lines(source)[ref["start"] - 1:preview_end]
+        excerpts.append({
+            **ref, "origin": source["origin"], "kind": source["kind"], "current_status": source["status"],
+            "text_sha256": source["text_sha256"],
+            "lines": [{"line": index, "text": line[:500]} for index, line in enumerate(preview, ref["start"])],
+            "preview_truncated": preview_end < ref["end"] or any(len(line) > 500 for line in preview),
+        })
+    return {
+        "case": state["case"], "revision": state["revision"] if revision is None else revision,
+        "archived": revision is not None, "claim": claim, "sources": excerpts,
+        "verified_rates": rate_checks(state["sources"], claim, {}),
+        "verified_cells": cell_checks(state["sources"], claim, {}),
+    }
+
+
+def rate_summary(result):
+    group = ", ".join(f"{key}={value}" for key, value in result["group"].items()) or "вся таблица"
+    group = re.sub(r"([\\`*_\[\]()|])", r"\\\1", escape(" ".join(group.split())))
+    counts = f"{result['numerator']}/{result['denominator']}"
+    value = f"{counts} = {result['percent']:g}%" if result["percent"] is not None else f"{counts}, доля не определена"
+    return f"`{result['source']}`, {group} — {value}"
 
 
 def items(lines, record, labels):
@@ -26,11 +66,15 @@ def report(state, as_of):
     if "research" in saved:
         research = saved["research"]
         lines += ["", "## Исследование", "", research["comparison"], ""]
+        rate_cache = {}
         for claim in research["claims"]:
             refs = ", ".join(f"{ref['source']}:L{ref['start']}–L{ref['end']}" for ref in claim["refs"])
             lines.append(f"- **{claim['id']} · {claim['type']} · {claim['scope']}.** {claim['text']}"
                          + (f" [{refs}]." if refs else "")
                          + f" **Граница вывода.** {claim['limits']}")
+            checks = rate_checks(state["sources"], claim, rate_cache)
+            if checks:
+                lines.append("  - **Пересчёт по таблице.** " + ", ".join(map(rate_summary, checks)) + ".")
         lines += ["", "Открытые вопросы", ""]
         lines += [f"- {gap}" for gap in research["gaps"]]
     if "options" in saved:
@@ -40,6 +84,8 @@ def report(state, as_of):
             items(lines, option, {"action": "Действие", "benefit": "Польза", "objection": "Возражение",
                                   "economics": "Экономика"})
             lines.append("- **Основания.** " + ", ".join(option["claims"]))
+        if saved["options"].get("assumptions"):
+            lines += ["", "Допущения и оценки", "", *[f"- {x}" for x in saved["options"]["assumptions"]]]
     if "strategy" in saved:
         strategy = saved["strategy"]
         lines += ["", "## Рекомендация", "", f"**{strategy['option']}.** {strategy['rationale']}",
@@ -58,6 +104,8 @@ def report(state, as_of):
               "denominator": "Единица и знаменатель", "control": "Сравнение", "window": "Срок",
               "threshold": "Порог", "guardrails": "Защитные показатели"})
         lines.append("- **Основания.** " + ", ".join(strategy["test"]["claims"]))
+        if strategy.get("assumptions"):
+            lines += ["", "Допущения и основания порогов", "", *[f"- {x}" for x in strategy["assumptions"]]]
     if "decision" in saved:
         decision = saved["decision"]
         lines += ["", "## Решение и обязательства", "",
