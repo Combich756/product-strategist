@@ -11,8 +11,9 @@ import sys
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
+from urllib.parse import unquote
 
-from . import analysis, budget, checkpoints, qwen, recovery, sources, state, timing
+from . import analysis, budget, checkpoints, privacy, qwen, recovery, sources, state, timing
 from .report import claim_evidence, report
 
 
@@ -23,6 +24,7 @@ def source_or_error(data, key):
 
 
 def allow_web(folder, args):
+    privacy.require_clean(unquote(args.url), "Адрес источника")
     url = sources.normalize_url(args.url)
     with state.case(folder, write=True) as data:
         if url not in data["allowed_urls"]:
@@ -36,6 +38,9 @@ def ingest(folder, args):
     checkpoints.need(args.sheet is None or args.file is not None, "--sheet допустим только для локального XLSX.")
     source_dates = timing.source_timing(args.period, args.data_as_of, args.valid_from, args.valid_through,
                                         args.timezone)
+    for value in (args.url, args.origin, args.file, args.sheet):
+        if value:
+            privacy.require_clean(unquote(value), "Имя или адрес источника")
     origin = sources.normalize_url(args.url or args.origin) if args.url or args.origin else None
     with state.case(folder) as data:
         checkpoints.need(not data["paused"], "Кейс приостановлен.")
@@ -50,6 +55,15 @@ def ingest(folder, args):
     else:
         checkpoints.need(args.kind is not None, "Для локального файла укажите --kind.")
         source = sources.read_local(folder, args.file, args.kind, origin, sheet=args.sheet)
+
+    for field in ("origin", "file", "sheet"):
+        if source.get(field):
+            privacy.require_clean(source[field], "Имя или адрес источника")
+    source["text"], masked = privacy.review(source["text"], "снимок источника",
+                                             interactive=not os.environ.get(qwen.RUN_ENV))
+    if masked:
+        source["text_sha256"] = hashlib.sha256(source["text"].encode("utf-8")).hexdigest()
+        source["masked_contacts"] = masked
 
     with state.case(folder, write=True, expect=revision) as data:
         replaced = args.replaces
@@ -75,7 +89,8 @@ def ingest(folder, args):
             source["timing"] = source_dates
         data["sources"][key] = source
         state.invalidate_for_source(data, key, replaced)
-        state.event(data, "ingest", source=key, replaced=replaced,
+        details = {"masked_contacts": masked} if masked else {}
+        state.event(data, "ingest", source=key, replaced=replaced, **details,
                     duration_ms=round(1000 * (perf_counter() - started)))
         return {"source": key, "reused": False, **sources.metadata(source)}
 
@@ -402,7 +417,8 @@ def main(argv=None):
             clock = None
             if args.analysis_at is not None or args.timezone is not None:
                 clock = timing.analysis_clock(args.analysis_at, args.timezone)
-            output = state.init(folder, args.request, analysis=clock)
+            request, _ = privacy.review(args.request, "запрос кейса", interactive=not os.environ.get(qwen.RUN_ENV))
+            output = state.init(folder, request, analysis=clock)
         else:
             output = handlers.get(args.command, inspect)(folder, args)
         if isinstance(output, str):

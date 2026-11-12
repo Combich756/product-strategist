@@ -16,7 +16,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock, Thread
 
-from . import budget, state
+from . import budget, privacy, state
 
 TOKEN_ENV = "STRATEGIST_CF_TOKEN"
 CASE_ENV = "STRATEGIST_QWEN_CASE"
@@ -133,8 +133,12 @@ class CompletionHandler(BaseHTTPRequestHandler):
         with gate.lock:
             try:
                 if gate.stop is None:
-                    gate.stop = budget.reserve_request(gate.folder, gate.run_id, gate.stage,
-                                                       gate.args.limit, reservation)
+                    findings = privacy.scan(wire.decode("utf-8"))
+                    if findings:
+                        gate.stop = {"reason": "privacy_review", "findings": findings}
+                    else:
+                        gate.stop = budget.reserve_request(gate.folder, gate.run_id, gate.stage,
+                                                           gate.args.limit, reservation)
                 if gate.stop is not None:
                     return self.fail(400, gate.stop["reason"], state.dump(gate.stop))
                 self.forward(wire, reservation, bool(payload.get("stream")))

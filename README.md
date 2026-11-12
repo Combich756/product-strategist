@@ -75,6 +75,8 @@ python -m pip install -r requirements.txt
 
 Попросите агента импортировать разрешённые файлы или выполните команды из корня проекта для созданного кейса `retention`.
 
+При обнаружении контактов импорт предлагает подтвердить сохранение копии с маскировкой в обычном терминале. Ключи и токены требуют подготовки чистого материала. [Проверка данных](docs/PRIVACY.md)
+
 ```bash
 python3 -m strategist ingest retention --file "Отчёт.pdf" --kind own
 python3 -m strategist ingest retention --file "Заметки.docx" --kind own

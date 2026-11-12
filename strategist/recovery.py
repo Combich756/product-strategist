@@ -5,11 +5,12 @@ import re
 import shlex
 from pathlib import Path
 
-from . import checkpoints, state
+from . import checkpoints, privacy, state
 
 
 def check_draft(data, stage, artifact):
     artifact = checkpoints.object_(artifact, stage)
+    privacy.require_clean(state.dump(artifact), "Черновик этапа")
     prerequisites = state.STAGES[:state.STAGES.index(stage)]
     state.need(all(key in data["checkpoints"] for key in prerequisites),
                "Не сохранены предыдущие этапы; сначала прочитайте context.")

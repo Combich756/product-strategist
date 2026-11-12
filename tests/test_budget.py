@@ -27,9 +27,12 @@ mode = os.environ["STRATEGIST_TEST_MODE"]
 assert "STRATEGIST_CF_TOKEN" not in os.environ
 
 def call():
+    content = "Проверь кейс"
+    if mode == "privacy":
+        content += " contact" + "@" + "example.invalid"
     request = Request(
         base + "/chat/completions",
-        data=json.dumps({"model": "local", "messages": [{"role": "user", "content": "Проверь кейс"}],
+        data=json.dumps({"model": "local", "messages": [{"role": "user", "content": content}],
                          "stream": True, "max_tokens": 7000}).encode(),
         headers={"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
                  "Content-Type": "application/json"},
@@ -66,7 +69,7 @@ if mode == "save":
 
 expected = {
     "budget": "request_budget", "missing": "missing_usage", "rejected": "provider_error",
-    "transport": "transport_error",
+    "transport": "transport_error", "privacy": "privacy_review",
 }[mode]
 assert call() == expected, (first, expected)
 sys.exit(1)
@@ -218,6 +221,13 @@ class BudgetTests(unittest.TestCase):
         forecast = self.call("budget", "--limit", "3000", "--estimate", "2500", "--reserve", "0")
         self.assertEqual(forecast["remaining_tokens"], 3000 - held)
         self.assertEqual(forecast["decision"], "insufficient")
+
+    def test_sensitive_request_stops_before_reservation_and_provider_call(self):
+        result, upstream = self.simulate("privacy", limit=3000, estimate=1000)
+        self.assertEqual(upstream, [])
+        self.assertEqual(result["runs"][0]["stop"], {"reason": "privacy_review", "findings": {"email": 1}})
+        self.assertEqual(result["usage"]["requests"], 0)
+        self.assertTrue(self.call("status")["paused"])
 
 
 if __name__ == "__main__":
