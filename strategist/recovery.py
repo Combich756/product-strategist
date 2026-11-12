@@ -58,7 +58,7 @@ def recover(folder, data):
                     "python3", "-m", "strategist", "--root", str(folder.parent), "save", data["case"],
                     stage, str(path), "--expect", str(data["revision"]),
                 ])
-        except (state.UserError, OSError, ValueError, KeyError, RecursionError, csv.Error) as error:
+        except (state.UserError, OSError, ValueError, OverflowError, KeyError, RecursionError, csv.Error) as error:
             item.update(valid=False, error=str(error))
         drafts.append(item)
     return {

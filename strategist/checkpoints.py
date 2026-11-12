@@ -4,8 +4,9 @@ import re
 from datetime import date
 
 from .analysis import rates, table_records
-from .sources import source_lines
+from .sources import TABLE_FORMATS, source_lines
 from .state import need
+from .timing import validate_analysis
 
 
 def object_(value, field):
@@ -107,7 +108,7 @@ def cell_checks(sources, claim, cache):
         need(source in sources, f"{source}: источник отсутствует.")
         line = check.get("line")
         need(type(line) is int and line > 1 and isinstance(check.get("expected"), str),
-             "cell_checks: line — номер строки данных, expected — точная строка из CSV.")
+             "cell_checks: line — номер строки данных, expected — точное значение из снимка таблицы.")
         key = ("cells", source)
         if key not in cache:
             header, rows = table_records(sources[source])
@@ -133,6 +134,8 @@ def linked(value, field, claims, fact_only=False):
 def validate_brief(state, data):
     strings(data, "question goal audience constraints available_data")
     texts(data.get("questions"), "questions")
+    if "analysis" in data:
+        validate_analysis(data["analysis"])
 
 
 def validate_research(state, data):
@@ -157,7 +160,7 @@ def validate_research(state, data):
         cell_checks(state["sources"], claim, cache)
         if re.search(r"\d", claim["text"]):
             tables = {ref["source"] for ref in claim["refs"]
-                      if state["sources"][ref["source"]]["format"] in {"csv", "tsv"}}
+                      if state["sources"][ref["source"]]["format"] in TABLE_FORMATS}
             checked = {check["source"] for field in ("rate_checks", "cell_checks") for check in claim.get(field, [])}
             need(tables <= checked,
                  f"{claim['id']}: числовой вывод со ссылкой на таблицу требует rate_checks или cell_checks. "

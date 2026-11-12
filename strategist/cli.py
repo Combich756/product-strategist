@@ -4,6 +4,7 @@ import argparse
 import csv
 import hashlib
 import http.client
+import os
 import re
 import sqlite3
 import sys
@@ -11,7 +12,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
 
-from . import analysis, checkpoints, recovery, sources, state
+from . import analysis, budget, checkpoints, qwen, recovery, sources, state, timing
 from .report import claim_evidence, report
 
 
@@ -32,6 +33,9 @@ def allow_web(folder, args):
 
 def ingest(folder, args):
     started = perf_counter()
+    checkpoints.need(args.sheet is None or args.file is not None, "--sheet допустим только для локального XLSX.")
+    source_dates = timing.source_timing(args.period, args.data_as_of, args.valid_from, args.valid_through,
+                                        args.timezone)
     origin = sources.normalize_url(args.url or args.origin) if args.url or args.origin else None
     with state.case(folder) as data:
         checkpoints.need(not data["paused"], "Кейс приостановлен.")
@@ -45,18 +49,20 @@ def ingest(folder, args):
         source = sources.fetch_web(origin)
     else:
         checkpoints.need(args.kind is not None, "Для локального файла укажите --kind.")
-        source = sources.read_local(folder, args.file, args.kind, origin)
+        source = sources.read_local(folder, args.file, args.kind, origin, sheet=args.sheet)
 
     with state.case(folder, write=True, expect=revision) as data:
         replaced = args.replaces
         for key, old in data["sources"].items():
-            if old["status"] == "active" and old["origin"] == source["origin"]:
-                if (
-                    old["text_sha256"] == source["text_sha256"] and old["kind"] == source["kind"]
-                    and old["acquisition"] == source["acquisition"]
-                ):
-                    checkpoints.need(not replaced or replaced == key, "Этот материал уже активен под другим ID.")
-                    return {"source": key, "reused": True, **sources.metadata(old)}
+            if (old["status"] == "active" and old["origin"] == source["origin"]
+                    and old.get("sheet") == source.get("sheet")):
+                content_fields = ("text_sha256", "kind", "acquisition", "format", "page_starts", "pages_without_text")
+                if all(old.get(field) == source.get(field) for field in content_fields):
+                    old_dates = old.get("timing", {})
+                    source_dates = {**old_dates, **source_dates}
+                    if source_dates == old_dates:
+                        checkpoints.need(not replaced or replaced == key, "Этот материал уже активен под другим ID.")
+                        return {"source": key, "reused": True, **sources.metadata(old)}
                 checkpoints.need(not replaced or replaced == key, "Источник с таким origin уже активен.")
                 replaced = key
         if replaced:
@@ -65,6 +71,8 @@ def ingest(folder, args):
             old["status"] = "superseded"
         key = f"S{len(data['sources']) + 1:03d}"
         source["replaces"] = replaced
+        if source_dates:
+            source["timing"] = source_dates
         data["sources"][key] = source
         state.invalidate_for_source(data, key, replaced)
         state.event(data, "ingest", source=key, replaced=replaced,
@@ -87,17 +95,28 @@ def revoke(folder, args):
 
 def save(folder, args):
     stage = "decision" if args.command == "decide" else args.stage
+    run_id = os.environ.get(qwen.RUN_ENV)
+    if run_id:
+        checkpoints.need(folder.name == os.environ.get(qwen.CASE_ENV) and stage == os.environ.get(qwen.STAGE_ENV),
+                         "Этот запуск Qwen сохраняет только запланированный этап своего кейса.")
     artifact = checkpoints.object_(state.load_json(args.input), stage)
     with state.case(folder, write=True, expect=args.expect) as data:
+        if run_id:
+            checkpoints.need(any(row["id"] == run_id and row["outcome"] == "running"
+                                 for row in budget.runs(folder)),
+                             "Запуск Qwen уже завершён. Прочитайте status и recover.")
         if data["checkpoints"].get(stage) == artifact:
             return state.summary(data)
         checkpoints.need(state.next_stage(data) == stage,
                          f"Следующий этап — {state.next_stage(data)}. Для исправления используйте reopen.")
         review = recovery.check_draft(data, stage, artifact)
         data["checkpoints"][stage] = artifact
+        if stage == "brief" and "analysis" in artifact:
+            data["analysis"] = artifact["analysis"]
         if stage == "decision" and data["impact"]:
             data["impact"]["review_required"] = False
-        state.event(data, "save", stage=stage,
+        details = {"qwen_run_id": run_id} if run_id else {}
+        state.event(data, "save", stage=stage, **details,
                     artifact_sha256=hashlib.sha256(state.dump(artifact).encode()).hexdigest())
         return {**state.summary(data), "warnings": review["warnings"]}
 
@@ -152,28 +171,39 @@ def log(folder, args):
         return state.summary(data)
 
 
-def cost(data):
+def cost(data, *, summary_only=False):
+    entries = [item for item in data["journal"] if item["action"] == "log"]
     amounts = {}
     totals = {"model": 0, "tool": 0, "human": 0}
     unknown = 0
-    for item in data["journal"]:
-        if item["action"] != "log":
-            continue
+    tokens = {"input": None, "output": None}
+    missing_tokens = {"input": 0, "output": 0}
+    for item in entries:
         totals[item["kind"]] += item["seconds"] or 0
         if item["amount"] is None:
             unknown += 1
         else:
             currency = item["currency"]
             amounts[currency] = amounts.get(currency, Decimal(0)) + Decimal(item["amount"])
-    return {
-        "measurement_status": "logged_only" if any(item["action"] == "log" for item in data["journal"]) else "unmeasured",
+        if item["kind"] == "model":
+            for side in tokens:
+                value = item.get(f"{side}_tokens")
+                if value is None:
+                    missing_tokens[side] += 1
+                else:
+                    tokens[side] = (tokens[side] or 0) + value
+    result = {
+        "measurement_status": "logged_only" if entries else "unmeasured",
         "known_logged_cost": {currency: str(amount) for currency, amount in amounts.items()},
         "logged_seconds": totals, "log_entries_without_cost": unknown,
+        "logged_tokens": tokens, "model_entries_without_token_counts": missing_tokens,
         "successful_ingest_ms": sum(item.get("duration_ms", 0) for item in data["journal"]),
-        "entries": [item for item in data["journal"] if item["action"] == "log"],
-        "note": "Учтены только записи log. Ноль записей не означает нулевую стоимость. "
-                "Интервалы между сохранениями не измеряют время модели; API-вызовы IDE автоматически не видны.",
+        "note": "Поля logged_* учитывают записи log. Фактический расход qwen-run показан отдельно в qwen_usage. "
+                "Ноль записей не означает нулевую стоимость. Интервалы между сохранениями не измеряют время модели.",
     }
+    if not summary_only:
+        result["entries"] = entries
+    return result
 
 
 def inspect(folder, args):
@@ -182,8 +212,14 @@ def inspect(folder, args):
             case "status":
                 return state.summary(data)
             case "context":
-                return {"request": data["request"], **state.summary(data),
-                        "saved": data["checkpoints"], "allowed_urls": data["allowed_urls"]}
+                result = {"request": data["request"], **state.summary(data),
+                          "analysis": state.analysis_context(data), "allowed_urls": data["allowed_urls"]}
+                if args.stage:
+                    checkpoints.need(args.stage in data["checkpoints"], f"Этап {args.stage} ещё не сохранён.")
+                    result["saved"] = {args.stage: data["checkpoints"][args.stage]}
+                elif not args.compact:
+                    result["saved"] = data["checkpoints"]
+                return result
             case "sources":
                 return {key: sources.metadata(source) for key, source in data["sources"].items()}
             case "view":
@@ -194,7 +230,8 @@ def inspect(folder, args):
                 checkpoints.need(sum(map(len, lines[args.start - 1:last])) <= 24_000,
                                  "Диапазон слишком длинный. Сузьте его или разбейте длинную строку во входном файле.")
                 return {"source": args.source, **sources.metadata(source),
-                        "lines": [{"line": index + 1, "text": lines[index]} for index in range(args.start - 1, last)]}
+                        "lines": [{"line": line, "text": lines[line - 1], **sources.line_location(source, line)}
+                                  for line in range(args.start, last + 1)]}
             case "find":
                 return analysis.find(data, args.query, args.limit)
             case "claim":
@@ -221,7 +258,17 @@ def inspect(folder, args):
             case "followup":
                 return state.followup(data, args.as_of)
             case "cost":
-                return cost(data)
+                result = cost(data, summary_only=args.summary)
+                measured = budget.usage(folder, summary_only=args.summary)
+                if measured["by_stage"]:
+                    result["qwen_usage"] = measured
+                    result["measurement_status"] = (
+                        "qwen_only" if result["measurement_status"] == "unmeasured" else "logged_and_qwen"
+                    )
+                return result
+            case "budget":
+                return budget.plan(folder, data, limit=args.limit, reserve=args.reserve,
+                                   estimate=args.estimate, model=args.model)
             case "report":
                 return report(data, args.as_of)
 
@@ -236,15 +283,24 @@ def parser():
         sub.add_argument("case", help="ID кейса")
         return sub
 
-    command("init", "Создать кейс").add_argument("request")
+    sub = command("init", "Создать кейс")
+    sub.add_argument("request")
+    sub.add_argument("--analysis-at", help="Момент анализа ISO 8601 со смещением. По умолчанию время создания.")
+    sub.add_argument("--timezone", help="Часовой пояс анализа, например Europe/Moscow или +03:00.")
     command("allow-web", "Разрешить конкретный HTTPS URL").add_argument("url")
     sub = command("ingest", "Импортировать снимок")
     target = sub.add_mutually_exclusive_group(required=True)
     target.add_argument("--file", help="Путь внутри materials/ кейса")
     target.add_argument("--url", help="Явно разрешённый HTTPS URL")
+    sub.add_argument("--sheet", help="Название листа локального XLSX. Обязательно для книги с несколькими листами.")
     sub.add_argument("--kind", choices=("own", "synthetic", "public"))
     sub.add_argument("--origin", help="Разрешённый URL для локальной копии или выписки")
     sub.add_argument("--replaces", metavar="SOURCE")
+    sub.add_argument("--period", nargs=2, metavar=("START", "END"), help="Даты периода данных включительно.")
+    sub.add_argument("--data-as-of", metavar="DATE_OR_TIMESTAMP", help="Дата среза или момент ISO 8601 со смещением.")
+    sub.add_argument("--valid-from", metavar="DATE", help="Дата начала действия условия включительно.")
+    sub.add_argument("--valid-through", metavar="DATE", help="Последняя дата действия условия включительно.")
+    sub.add_argument("--timezone", help="Часовой пояс календарных дат источника, если известен.")
     sub = command("revoke", "Отозвать активный источник")
     sub.add_argument("source")
     sub.add_argument("--reason", required=True)
@@ -283,7 +339,7 @@ def parser():
     sub = command("claim", "Показать вывод, фрагменты источников и пересчёт долей")
     sub.add_argument("claim", help="ID вывода, например C1")
     sub.add_argument("--revision", type=int, help="Архивная ревизия исследования из history")
-    sub = command("rates", "Пересчитать доли по CSV/TSV")
+    sub = command("rates", "Пересчитать доли по CSV, TSV или листу XLSX")
     sub.add_argument("source")
     sub.add_argument("--by", nargs="+", default=[])
     sub.add_argument("--numerator", required=True)
@@ -302,10 +358,30 @@ def parser():
         sub = command(name, help_)
         sub.add_argument("--as-of", type=lambda value: date.fromisoformat(value).isoformat(),
                          default=date.today().isoformat())
+    sub = command("context", "Показать сохранённый контекст")
+    scope = sub.add_mutually_exclusive_group()
+    scope.add_argument("--compact", action="store_true", help="Показать состояние без содержимого этапов")
+    scope.add_argument("--stage", choices=state.STAGES, help="Добавить содержимое одного сохранённого этапа")
+    command("cost", "Показать учтённые затраты").add_argument(
+        "--summary", action="store_true", help="Показать суммы без списка записей")
     for name, help_ in (
-        ("status", "Показать этап и ревизию"), ("context", "Показать сохранённый контекст"),
+        ("budget", "Оценить токены до следующего чекпоинта"),
+        ("qwen-run", "Запустить Qwen Code с проверкой бюджета перед этапом и запросом"),
+    ):
+        sub = command(name, help_)
+        sub.add_argument("--limit", type=int, required=True, help="Суммарный токенный бюджет кейса для qwen-run")
+        sub.add_argument("--estimate", type=int, help="Оценка расхода одного этапа, если вы задаёте её вручную")
+        sub.add_argument("--reserve", type=int, default=10_000, help="Резерв к оценке этапа, по умолчанию 10000")
+        sub.add_argument("--model", default=budget.DEFAULT_MODEL)
+        if name == "qwen-run":
+            sub.add_argument("--account", required=True, help="Cloudflare Account ID")
+            sub.add_argument("--max-output-tokens", type=int, default=8192, help="Предел вывода одного запроса")
+            sub.add_argument("--request-timeout", type=int, default=90, help="Тайм-аут ответа Cloudflare в секундах")
+            sub.add_argument("--wall-time", type=int, default=600, help="Предел времени одного этапа в секундах")
+    for name, help_ in (
+        ("status", "Показать этап и ревизию"),
         ("sources", "Показать реестр источников"), ("history", "Показать архив решений"),
-        ("journal", "Показать журнал изменений"), ("cost", "Показать учтённые затраты"),
+        ("journal", "Показать журнал изменений"),
         ("pause", "Поставить работу на паузу"), ("resume", "Снять паузу"),
         ("recover", "Найти сохранённые и незавершённые этапы после сбоя"),
     ):
@@ -318,18 +394,22 @@ def main(argv=None):
     handlers = {
         "allow-web": allow_web, "ingest": ingest, "revoke": revoke, "save": save, "decide": save,
         "reopen": reopen, "pause": pause_or_resume, "resume": pause_or_resume, "track": track, "log": log,
+        "qwen-run": qwen.run,
     }
     try:
         folder = state.case_dir(args.root, args.case)
         if args.command == "init":
-            output = state.init(folder, args.request)
+            clock = None
+            if args.analysis_at is not None or args.timezone is not None:
+                clock = timing.analysis_clock(args.analysis_at, args.timezone)
+            output = state.init(folder, args.request, analysis=clock)
         else:
             output = handlers.get(args.command, inspect)(folder, args)
         if isinstance(output, str):
             print(output, end="")
         else:
             print(state.dump(output))
-    except (state.UserError, OSError, ValueError, LookupError, csv.Error, InvalidOperation,
+    except (state.UserError, OSError, ValueError, OverflowError, LookupError, csv.Error, InvalidOperation,
             sqlite3.Error, http.client.HTTPException, RecursionError) as error:
         print(state.dump({"error": str(error)}), file=sys.stderr)
         return 2

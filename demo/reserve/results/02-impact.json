@@ -1,0 +1,30 @@
+{
+  "baseline_revision": 13,
+  "source_changes": [
+    {
+      "source": "S005",
+      "replaced": "S002"
+    },
+    {
+      "source": "S006",
+      "replaced": null
+    }
+  ],
+  "previous_decision": null,
+  "review_required": true,
+  "affected_claims": [
+    "C1",
+    "C2",
+    "C3"
+  ],
+  "affected_options": [
+    "O1",
+    "O2",
+    "O3",
+    "O4"
+  ],
+  "affected_strategy_sections": [
+    "product",
+    "test"
+  ]
+}

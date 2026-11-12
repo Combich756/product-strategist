@@ -21,9 +21,9 @@ class CaseTests(unittest.TestCase):
         self.call("init", "Что делать с падением активации?")
         self.materials = self.root / "test" / "materials"
 
-    def call(self, command, *args, error=None):
+    def call(self, command, *args, error=None, case_id="test"):
         with contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
-            code = main(["--root", str(self.root), command, "test", *args])
+            code = main(["--root", str(self.root), command, case_id, *args])
         if error is None:
             self.assertEqual(code, 0, stderr.getvalue())
             result = stdout.getvalue()
@@ -163,6 +163,155 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(result["known_logged_cost"], {"RUB": "0"})
         self.assertEqual(result["log_entries_without_cost"], 1)
         self.assertEqual(result["logged_seconds"]["model"], 15)
+
+    def test_cost_sums_known_tokens_and_counts_missing_measurements(self):
+        self.call("log", "--kind", "model", "--label", "Исследование", "--input-tokens", "4200",
+                  "--output-tokens", "800")
+        self.call("log", "--kind", "model", "--label", "Тайм-аут", "--outcome", "timeout", "--output-tokens", "0")
+        self.call("log", "--kind", "tool", "--label", "Чтение")
+        result = self.call("cost", "--summary")
+        self.assertEqual(result["logged_tokens"], {"input": 4200, "output": 800})
+        self.assertEqual(result["model_entries_without_token_counts"], {"input": 1, "output": 0})
+        self.assertNotIn("entries", result)
+
+    def test_context_can_load_only_one_stage_or_omit_artifacts(self):
+        source = self.local("note.md", "Наблюдение")
+        self.save("brief", self.brief())
+        self.save("research", self.research(source["source"]))
+        compact = self.call("context", "--compact")
+        self.assertEqual(compact["checkpoints"], ["brief", "research"])
+        self.assertNotIn("saved", compact)
+        self.assertEqual(list(self.call("context", "--stage", "research")["saved"]), ["research"])
+        self.assertEqual(list(self.call("context")["saved"]), ["brief", "research"])
+        self.call("context", "--stage", "strategy", error="ещё не сохранён")
+
+    def test_pdf_search_and_claim_keep_original_page_numbers(self):
+        from pypdf import PdfWriter
+        from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+        writer = PdfWriter()
+        for text in ("Pilot", "", "Activation"):
+            page = writer.add_blank_page(300, 200)
+            if text:
+                page[NameObject("/Resources")] = DictionaryObject({
+                    NameObject("/Font"): DictionaryObject({NameObject("/F1"): DictionaryObject({
+                        NameObject("/Type"): NameObject("/Font"),
+                        NameObject("/Subtype"): NameObject("/Type1"),
+                        NameObject("/BaseFont"): NameObject("/Helvetica"),
+                    })}),
+                })
+                content = DecodedStreamObject()
+                content.set_data(f"BT /F1 12 Tf 40 150 Td ({text}) Tj ET".encode("ascii"))
+                page.replace_contents(content)
+        writer.write(self.materials / "pilot.PDF")
+
+        source = self.call("ingest", "--file", "pilot.PDF", "--kind", "synthetic")
+        self.assertEqual(source["page_count"], 3)
+        self.assertEqual(source["pages_without_text"], 1)
+        hit, = self.call("find", "activation")
+        self.assertEqual((hit["line"], hit["page"]), (3, 3))
+        viewed = self.call("view", source["source"], "--start", "3")["lines"]
+        self.assertEqual(viewed, [{"line": 3, "page": 3, "text": "Activation"}])
+
+        self.save("brief", self.brief())
+        research = self.research(source["source"])
+        research["claims"][0]["refs"][0].update(start=3, end=3)
+        self.save("research", research)
+        self.assertEqual(self.call("claim", "C1")["sources"][0]["lines"], viewed)
+
+    def test_docx_preserves_body_and_table_order(self):
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Паспорт пилота")
+        table = document.add_table(rows=1, cols=2)
+        table.cell(0, 0).text = "Платформа"
+        table.cell(0, 1).text = "Android"
+        document.add_paragraph("Срок наблюдения")
+        document.save(self.materials / "notes.docx")
+
+        source = self.call("ingest", "--file", "notes.docx", "--kind", "synthetic")
+        lines = self.call("view", source["source"])["lines"]
+        self.assertEqual([line["text"] for line in lines], ["Паспорт пилота", "Платформа | Android", "Срок наблюдения"])
+
+    def test_xlsx_calculations_cite_snapshot_lines_and_keep_sheet_versions(self):
+        from openpyxl import Workbook
+
+        book = Workbook()
+        sheet = book.active
+        sheet.title = "Активации"
+        sheet.append(["platform", "yes", "all", "note"])
+        sheet.append(["Android", 7, 10, "первый, фрагмент\nпродолжение"])
+        sheet.append([])
+        sheet.append(["Android", 3, 10])
+        book.create_sheet("Контроль").append(["Сравнение"])
+        path = self.materials / "metrics.xlsx"
+        book.save(path)
+
+        args = ("--file", path.name, "--kind", "synthetic")
+        self.call("ingest", *args, error="Активации")
+        self.assertEqual(self.call("sources"), {})
+        first = self.call("ingest", *args, "--sheet", "Активации")["source"]
+        control = self.call("ingest", *args, "--sheet", "Контроль")["source"]
+        self.assertTrue(self.call("ingest", *args, "--sheet", "Активации")["reused"])
+        lines = self.call("view", first)["lines"]
+        self.assertEqual([line["row"] for line in lines], [1, 2, 2, 3, 4])
+        cells = self.call("cells", first, "--rows", "2", "--columns", "note")
+        self.assertEqual(cells["cell_checks"][0]["expected"], "первый, фрагмент\nпродолжение")
+        evidence = self.call("rates", first, "--by", "platform", "--numerator", "yes", "--denominator", "all", "--evidence")
+        self.assertEqual(evidence["refs"], [{"source": first, "start": 2, "end": 3},
+                                            {"source": first, "start": 5, "end": 5}])
+
+        self.save("brief", self.brief())
+        research = self.research(first)
+        research["claims"][0].update(text="Подключились 50% покупателей", refs=evidence["refs"])
+        self.save("research", research, error="требует rate_checks")
+        research["claims"][0]["rate_checks"] = evidence["rate_checks"]
+        self.save("research", research)
+        claim = self.call("claim", "C1")
+        self.assertEqual(claim["verified_rates"][0]["percent"], 50)
+        self.assertEqual(claim["sources"][0]["sheet"], "Активации")
+
+        sheet["B4"] = 4
+        book.save(path)
+        revised = self.call("ingest", *args, "--sheet", "Активации")
+        self.assertEqual(revised["replaces"], first)
+        status = self.call("status")
+        self.assertEqual(status["active_sources"], [control, revised["source"]])
+        self.assertEqual(status["impact"]["affected_claims"], ["C1"])
+
+    def test_xlsx_single_sheet_keeps_formula_text(self):
+        from openpyxl import Workbook
+        from openpyxl.worksheet.formula import ArrayFormula
+
+        book = Workbook()
+        book.active.append(["yes", "all"])
+        book.active.append([ArrayFormula("A2", "=SUM(1,2)"), 10])
+        book.save(self.materials / "formula.xlsx")
+
+        args = ("--file", "formula.xlsx", "--kind", "synthetic")
+        source = self.call("ingest", *args)["source"]
+        self.assertTrue(self.call("ingest", *args)["reused"])
+        cells = self.call("cells", source, "--rows", "2", "--columns", "yes")
+        self.assertEqual(cells["cell_checks"][0]["expected"], "=SUM(1,2)")
+        self.call("rates", source, "--numerator", "yes", "--denominator", "all", error="целыми счётчиками")
+
+    def test_import_errors_leave_case_unchanged(self):
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(300, 200)
+        writer.write(self.materials / "blank.pdf")
+        writer.encrypt("password")
+        writer.write(self.materials / "locked.pdf")
+        (self.materials / "broken.docx").write_bytes(b"not an Office file")
+        (self.materials / "broken.xlsx").write_bytes(b"not an Office file")
+        status = self.call("status")
+        for file, error in (("blank.pdf", "OCR"), ("locked.pdf", "защищён"),
+                            ("broken.docx", "прочитать DOCX"), ("broken.xlsx", "прочитать XLSX")):
+            with self.subTest(file=file):
+                self.call("ingest", "--file", file, "--kind", "synthetic", error=error)
+        self.assertEqual(self.call("status"), status)
 
 
 class ToolTests(unittest.TestCase):

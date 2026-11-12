@@ -6,13 +6,13 @@
 
 Распакуйте архив отдельно и перенесите исходные файлы в рабочую копию. Сохраните свои `cases/` и `.git/`. Архив исходников их не содержит. Перед переносом проверьте `git status`: собственные изменения нужно сохранить отдельным коммитом или копией. Перенос файлов не должен удалять рабочие кейсы.
 
-После обновления:
+После обновления [подготовьте окружение](../README.md#импорт-документов) и выполните команды.
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m strategist recover qwen-check
 git status --short
-git add AGENTS.md QWEN.md agent knowledge strategist demo tests docs .github README.md CHANGELOG.md .gitignore
+git add AGENTS.md QWEN.md .qwen/agents/materials-researcher.md agent knowledge strategist demo tests docs .github README.md CHANGELOG.md requirements.txt .gitignore
 git commit -m "Improve evidence checks and draft recovery"
 ```
 
@@ -29,4 +29,4 @@ gh repo create product-strategist --private --source . --remote origin --push
 
 Команда предполагает, что репозиторий с таким именем ещё не создан и `origin` отсутствует. Для публичной публикации вместо `--private` укажите `--public`. Закрытый репозиторий нужно отдельно открыть жюри. Если репозиторий уже создан, используйте его URL в `git remote add origin` и `git push -u origin main`; при существующем `origin` сначала проверьте его адрес.
 
-Workflow `.github/workflows/check.yml` запускает тесты и записанную демонстрацию без LLM и платных сервисов. Он не заменяет живой прогон и запись видео. Описание архитектуры и ограничений готово в `docs/`; видео до 10 минут и окончательный комплект подачи остаются отдельными материалами.
+Workflow `.github/workflows/check.yml` запускает тесты и записанную демонстрацию без LLM и платных сервисов. Исходные материалы и отчёты живого кейса находятся в `demo/reserve/`. Для заявки приложите ссылку на репозиторий или архив, описание PDF и видео из комплекта. Разместите файлы на площадках из задания и проверьте доступ жюри по каждой ссылке.

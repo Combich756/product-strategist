@@ -4,16 +4,18 @@ import re
 from html import escape
 
 from .checkpoints import cell_checks, rate_checks
-from .sources import source_lines
-from .state import followup, need, next_stage
+from .sources import line_location, source_lines
+from .state import analysis_context, followup, need, next_stage
 
 
 def claim_evidence(state, claim_id, revision):
     saved = state["checkpoints"]
+    analysis = analysis_context(state)
     if revision is not None:
         archive = next((entry for entry in state["history"] if entry["revision"] == revision), None)
         need(archive is not None, f"Архивная ревизия {revision} отсутствует. Список ревизий: history.")
         saved = archive["checkpoints"]
+        analysis = archive.get("analysis")
     claim = next((item for item in saved.get("research", {}).get("claims", []) if item["id"] == claim_id), None)
     need(claim is not None, f"Вывод {claim_id} отсутствует в выбранном исследовании.")
     excerpts = []
@@ -21,15 +23,19 @@ def claim_evidence(state, claim_id, revision):
         source = state["sources"][ref["source"]]
         preview_end = min(ref["end"], ref["start"] + 11)
         preview = source_lines(source)[ref["start"] - 1:preview_end]
+        location = {"sheet": source["sheet"]} if "sheet" in source else {}
+        timing = {"timing": source["timing"]} if "timing" in source else {}
         excerpts.append({
-            **ref, "origin": source["origin"], "kind": source["kind"], "current_status": source["status"],
+            **ref, **location, **timing, "origin": source["origin"], "kind": source["kind"],
+            "current_status": source["status"], "captured_at": source["captured_at"],
             "text_sha256": source["text_sha256"],
-            "lines": [{"line": index, "text": line[:500]} for index, line in enumerate(preview, ref["start"])],
+            "lines": [{"line": index, "text": line[:500], **line_location(source, index)}
+                      for index, line in enumerate(preview, ref["start"])],
             "preview_truncated": preview_end < ref["end"] or any(len(line) > 500 for line in preview),
         })
     return {
         "case": state["case"], "revision": state["revision"] if revision is None else revision,
-        "archived": revision is not None, "claim": claim, "sources": excerpts,
+        "archived": revision is not None, "analysis": analysis, "claim": claim, "sources": excerpts,
         "verified_rates": rate_checks(state["sources"], claim, {}),
         "verified_cells": cell_checks(state["sources"], claim, {}),
     }
@@ -48,6 +54,23 @@ def items(lines, record, labels):
         lines.append(f"- **{title}.** {record[key]}")
 
 
+def source_timing_label(source):
+    timing = source.get("timing")
+    if not timing:
+        return ""
+    parts = []
+    for key, label in (("period", "период данных"), ("validity", "срок действия")):
+        if key in timing:
+            dates = timing[key]
+            parts.append(f"{label} {dates.get('start', '…')} — {dates.get('end', '…')}")
+    if "data_as_of" in timing:
+        parts.append(f"срез {timing['data_as_of']}")
+    if "timezone" in timing:
+        parts.append(f"часовой пояс {timing['timezone']}")
+    parts.append(f"импорт {source['captured_at']}")
+    return " · " + " · ".join(parts)
+
+
 def report(state, as_of):
     saved = state["checkpoints"]
     lines = [
@@ -56,6 +79,14 @@ def report(state, as_of):
         "", f"**Состояние.** Ревизия {state['revision']}, следующий этап `{next_stage(state)}`"
         + (", кейс приостановлен." if state["paused"] else "."),
     ]
+    analysis = analysis_context(state)
+    if analysis:
+        lines += ["", f"**Момент анализа.** {analysis['as_of']} ({analysis['timezone']})."]
+        if analysis.get("periods"):
+            lines += ["", "## Периоды сравнения", ""]
+            for period in analysis["periods"]:
+                label = escape(" ".join(period["label"].split()))
+                lines.append(f"- {label} · {period['start']} — {period['end']}.")
     if "brief" in saved:
         brief = saved["brief"]
         lines += ["", "## Постановка", ""]
@@ -127,6 +158,7 @@ def report(state, as_of):
         lines += ["", "## Источники", ""]
         for key, source in state["sources"].items():
             origin = source["origin"]
+            sheet = f" · лист «{escape(' '.join(source['sheet'].split()))}»" if "sheet" in source else ""
             lines.append(f"- **{key} · {source['kind']} · {source['status']}.** "
-                         f"{source['acquisition']}. {origin}")
+                         f"{source['acquisition']}. {origin}{sheet}{source_timing_label(source)}")
     return "\n".join(lines) + "\n"

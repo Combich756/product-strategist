@@ -6,13 +6,17 @@ import ipaddress
 import re
 import socket
 import ssl
+from bisect import bisect_right
 from html.parser import HTMLParser
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from . import documents
 from .state import UserError, utc_now
 
 MAX_BYTES = 1_000_000
 MAX_CHARS = 300_000
+TABLE_FORMATS = {"csv", "tsv", "xlsx"}
+LOCAL_FORMATS = {"txt", "md", "html", "htm"} | TABLE_FORMATS | documents.FORMATS
 BLOCKS = {"article", "section", "p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "main"}
 HIDDEN = {"style", "script", "template", "noscript", "head", "svg"}
 
@@ -69,11 +73,11 @@ def parse_html(raw, encoding):
     return parser.text()
 
 
-def limited_file(path):
+def limited_file(path, limit=MAX_BYTES):
     with path.open("rb") as stream:
-        raw = stream.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES:
-        raise UserError(f"Размер источника превышает {MAX_BYTES} байт.")
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise UserError(f"Размер источника превышает {limit} байт.")
     return raw
 
 
@@ -89,26 +93,32 @@ def make_source(raw, text, *, origin, format_, kind, acquisition):
     }
 
 
-def read_local(folder, name, kind, origin=None):
+def read_local(folder, name, kind, origin=None, *, sheet=None):
     inbox = (folder / "materials").resolve()
     path = (inbox / name).resolve()
     if not path.is_relative_to(inbox) or not path.is_file():
         raise UserError("Положите разрешённый файл в materials/ текущего кейса.")
     format_ = path.suffix.lower().lstrip(".")
-    if format_ not in {"txt", "md", "csv", "tsv", "html", "htm"}:
-        raise UserError("Поддерживаются UTF-8 MD, TXT, CSV, TSV и HTML. Другие форматы экспортируйте в текст/CSV.")
+    if format_ not in LOCAL_FORMATS:
+        raise UserError("Поддерживаются MD, TXT, CSV, TSV, HTML, PDF, DOCX и XLSX.")
+    if sheet is not None and format_ != "xlsx":
+        raise UserError("--sheet допустим только для локального XLSX.")
     if kind == "public" and not origin:
         raise UserError("Для открытой копии укажите --origin с разрешённым URL.")
     if origin and kind != "public":
         raise UserError("--origin допустим только для открытой копии.")
-    raw = limited_file(path)
-    text = parse_html(raw, "utf-8-sig") if format_ in {"html", "htm"} else raw.decode("utf-8-sig")
+    details = {}
+    if format_ in documents.FORMATS:
+        raw = limited_file(path, documents.MAX_BYTES)
+        text, details = documents.extract(raw, format_, sheet=sheet, limit=MAX_CHARS)
+    else:
+        raw = limited_file(path)
+        text = parse_html(raw, "utf-8-sig") if format_ in {"html", "htm"} else raw.decode("utf-8-sig")
     source = make_source(
         raw, text, origin=origin or f"materials/{path.relative_to(inbox).as_posix()}",
         format_=format_, kind=kind, acquisition="local_public_copy" if origin else "local_file",
     )
-    source["file"] = path.relative_to(inbox).as_posix()
-    return source
+    return {**source, "file": path.relative_to(inbox).as_posix(), **details}
 
 
 def public_addresses(host):
@@ -165,5 +175,14 @@ def source_lines(source):
     return source["text"].split("\n")
 
 
+def line_location(source, line):
+    if "page_starts" in source:
+        return {"page": bisect_right(source["page_starts"], line)}
+    if "continuation_lines" in source:
+        return {"row": line - bisect_right(source["continuation_lines"], line)}
+    return {}
+
+
 def metadata(source):
-    return {key: value for key, value in source.items() if key != "text"}
+    return {key: value for key, value in source.items()
+            if key not in {"text", "page_starts", "continuation_lines"}}

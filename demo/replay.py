@@ -14,6 +14,7 @@ REQUEST = "Просела доля первых подключений тури�
 APPLE = "https://support.apple.com/en-us/118227"
 AIRALO = "https://www.airalo.com/help/getting-started-with-airalo/E8DFWD88SHUX/when-does-my-esim-data-package-expire/0HBQDX9CSUPR"
 AS_OF = "2026-11-08"
+FUNNEL_PERIOD = ("--period", "2026-10-05", "2026-10-18")
 
 
 def replay(root, name, until, reports):
@@ -51,7 +52,7 @@ def replay(root, name, until, reports):
     started = perf_counter()
     run("init", REQUEST)
     file("pilot.md", "synthetic")
-    original = file("funnel_v1.csv", "synthetic")
+    original = file("funnel_v1.csv", "synthetic", *FUNNEL_PERIOD)
     for url, filename in ((APPLE, "apple_notes.md"), (AIRALO, "airalo_notes.md")):
         run("allow-web", url)
         file(filename, "public", "--origin", url)
@@ -75,7 +76,7 @@ def replay(root, name, until, reports):
     if until == "decision":
         return
 
-    corrected = file("funnel_v2.csv", "synthetic", "--replaces", original)
+    corrected = file("funnel_v2.csv", "synthetic", "--replaces", original, *FUNNEL_PERIOD)
     file("correction.md", "synthetic")
     impact = run("status")["impact"]
     write("02-impact.json", json.dumps(impact, ensure_ascii=False, indent=2) + "\n")

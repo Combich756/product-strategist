@@ -5,13 +5,13 @@ import io
 import re
 from collections import defaultdict
 
-from .sources import source_lines
+from .sources import TABLE_FORMATS, line_location, source_lines
 from .state import UserError, need
 
 
 def table_records(source):
-    """Read physical line ranges as well as values, including multiline CSV cells."""
-    need(source["format"] in {"csv", "tsv"}, "Нужен CSV или TSV.")
+    """Read physical snapshot line ranges, including multiline cells."""
+    need(source["format"] in TABLE_FORMATS, "Нужен CSV, TSV или лист XLSX.")
     reader = csv.reader(io.StringIO(source["text"], newline=""),
                         delimiter="\t" if source["format"] == "tsv" else ",", strict=True)
     header = next(reader, [])
@@ -49,7 +49,7 @@ def cells(source_id, source, rows, columns):
          "Укажите существующие неповторяющиеся столбцы.")
     need(len(set(rows)) * len(columns) <= 200, "Выберите не больше 200 ячеек за вызов.")
     selected = {first: (last, record) for first, last, record in records if first in rows}
-    need(set(selected) == set(rows), "Строка отсутствует или не является началом CSV-записи.")
+    need(set(selected) == set(rows), "Строка отсутствует или не является началом CSV-записи снимка.")
     checks = []
     for first in sorted(selected):
         _, record = selected[first]
@@ -99,11 +99,12 @@ def find(state, query, limit):
             if score:
                 hits.append((score, key, index, line[:500]))
     hits.sort(key=lambda item: (-item[0], item[1], item[2]))
-    return [{"source": key, "line": line, "text": text} for _, key, line, text in hits[:limit]]
+    return [{"source": key, "line": line, "text": text, **line_location(state["sources"][key], line)}
+            for _, key, line, text in hits[:limit]]
 
 
 def rates(source, group_by, numerator, denominator):
-    need(source["format"] in {"csv", "tsv"}, "Для rates нужен CSV или TSV.")
+    need(source["format"] in TABLE_FORMATS, "Для rates нужен CSV, TSV или лист XLSX.")
     columns = [*group_by, numerator, denominator]
     need(len(set(columns)) == len(columns), "Поля группировки, числителя и знаменателя должны различаться.")
     stream = io.StringIO(source["text"], newline="")

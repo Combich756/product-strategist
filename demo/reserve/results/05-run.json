@@ -1,0 +1,28 @@
+{
+  "case": "reserve-live",
+  "date": "2026-11-11",
+  "environment": "Codex Work, GPT-6 family. Exact model identifier and model usage were not exposed.",
+  "scope": "Сквозное исследование и две сохранённые стратегии, автор кейса и агент в одной рабочей сессии.",
+  "started_at": "2026-11-11T19:31:15.854+03:00",
+  "elapsed_wall_seconds": 450.46,
+  "pause_to_resume_seconds": 59.817,
+  "cli_commands": 52,
+  "cli_seconds": 10.502,
+  "cli_failed_commands": 1,
+  "input_tokens": null,
+  "output_tokens": null,
+  "model_cost": null,
+  "local_cli_external_api_charges": 0,
+  "human_choices": 0,
+  "context_bytes": {
+    "revision": 13,
+    "full": 29243,
+    "compact": 1080
+  },
+  "notes": [
+    "Время от init до последнего status включает рассуждения, паузу, загрузку обновления и операции инструментов.",
+    "Учтён один отказ DNS при загрузке Backblaze. Использован проверенный открытый конспект с URL.",
+    "Попытка отдельного Codex CLI до init остановилась на файловой системе. В расчётах времени живого кейса её нет.",
+    "Подготовка учебного набора и монтаж выполнены вне замера. Выбор владельца оставлен открытым."
+  ]
+}

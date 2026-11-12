@@ -1,0 +1,28 @@
+{
+  "runtime": "Отдельный субагент этой рабочей сессии; fork_turns=none. Qwen Code не запускался.",
+  "case": "worker-live-a0cbe9a1",
+  "task_id": "android-w42",
+  "input_revision": 8,
+  "outcome": "partial",
+  "state_revision_before": 8,
+  "state_revision_after_worker": 8,
+  "full_state_unchanged": true,
+  "all_snapshot_hashes_match": true,
+  "cli_check_valid": true,
+  "claims": 6,
+  "declared_rate_checks": 6,
+  "comparison_words": 103,
+  "elapsed_seconds_to_parent_result": 282,
+  "elapsed_scope": "Выдача задачи → получение ответа главным агентом, включая уточнение интерфейса; не чистое время модели.",
+  "controller_clarifications": 1,
+  "clarification": "Префикс CLI и разрешение прочитать SCHEMA.md; ответ по данным не подсказывался.",
+  "model_tokens": null,
+  "model_cost": null,
+  "human_domain_corrections_before_result": 0,
+  "controller_semantic_notes_after_result": 1,
+  "artifact_sha256": {
+    "task.json": "a9fc5e03122e2c739c4825f81662ac5b2fdb3773a7509777d7c29c711d186f53",
+    "result.json": "5a6836aa2b50a06950f983876d8cecc8a607d1e4b37061ceda5cc1d3ca382d75",
+    "evidence.md": "2ece3914a527847e416051d88eafd7a97118efd0f33aee5b1d5ec19e29718167"
+  }
+}
