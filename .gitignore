@@ -8,3 +8,6 @@ __pycache__/
 *.pem
 *.key
 *.sqlite3*
+
+.qwen/settings.json
+.qwen/settings.local.json
