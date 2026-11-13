@@ -1,0 +1,48 @@
+{
+  "case": "worker-live-a0cbe9a1",
+  "task_id": "android-w42",
+  "input_revision": 8,
+  "question": "Какие материалы подтверждают снижение первых подключений Android в W42, и можно ли сверить его с независимым журналом тех же событий?",
+  "done_when": "Пересчитаны доли W41/W42 по неделям и платформам; указаны определения когорт и окна; найден независимый журнал или точно описано его отсутствие в доступных материалах. Стратегия не требуется.",
+  "sources": [
+    {
+      "source": "S001",
+      "path": "cases/worker-live-a0cbe9a1/workers/android-w42/snapshots/S001.md",
+      "format": "md",
+      "kind": "synthetic",
+      "origin": "materials/pilot.md",
+      "text_sha256": "6f1896a0bb5892d9799aa1696bfcda5d4e730eaf59b0653022f76608b107500a"
+    },
+    {
+      "source": "S002",
+      "path": "cases/worker-live-a0cbe9a1/workers/android-w42/snapshots/S002.csv",
+      "format": "csv",
+      "kind": "synthetic",
+      "origin": "materials/funnel_v1.csv",
+      "text_sha256": "e9f1ef0fc718f3b781ff44efb419cd15fa6b2fce08276014785cf30a30356ce7"
+    },
+    {
+      "source": "S003",
+      "path": "cases/worker-live-a0cbe9a1/workers/android-w42/snapshots/S003.md",
+      "format": "md",
+      "kind": "public",
+      "origin": "https://support.apple.com/en-us/118227",
+      "text_sha256": "bacaec9a5437746add2838cf22dfe2b404ba839f18603dfc374dcc5bd9520320"
+    },
+    {
+      "source": "S004",
+      "path": "cases/worker-live-a0cbe9a1/workers/android-w42/snapshots/S004.md",
+      "format": "md",
+      "kind": "public",
+      "origin": "https://www.airalo.com/help/getting-started-with-airalo/E8DFWD88SHUX/when-does-my-esim-data-package-expire/0HBQDX9CSUPR",
+      "text_sha256": "b4965416615de94171edb761a3184da990d75e5cc359252864eeaf9c0f8225bc"
+    }
+  ],
+  "allowed_urls": [],
+  "work_dir": "cases/worker-live-a0cbe9a1/workers/android-w42",
+  "limits": {
+    "max_parent_summary_words": 250,
+    "max_claims": 8,
+    "raw_data_to_parent": false
+  }
+}

@@ -14,6 +14,11 @@ class UserError(Exception):
     pass
 
 
+def need(condition, message):
+    if not condition:
+        raise UserError(message)
+
+
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -23,10 +28,20 @@ def dump(value):
 
 
 def load_json(path):
+    path = Path(path)
+    need(path.stat().st_size <= 1_000_000, "JSON-артефакт больше 1 МБ.")
     def reject_constant(value):
         raise ValueError(f"Не допускается числовое значение {value}")
 
-    return json.loads(Path(path).read_text(encoding="utf-8-sig"), parse_constant=reject_constant)
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            need(key not in result, f"JSON: повторное поле {key!r}.")
+            result[key] = value
+        return result
+
+    return json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=reject_constant,
+                      object_pairs_hook=unique_fields)
 
 
 def case_dir(root, name):
@@ -35,7 +50,7 @@ def case_dir(root, name):
     return Path(root) / name
 
 
-def init(folder, request):
+def init(folder, request, *, analysis=None):
     if not request.strip():
         raise UserError("В запросе должен быть текст.")
     folder.mkdir(parents=True, exist_ok=True)
@@ -58,11 +73,12 @@ def init(folder, request):
             "journal": [],
         }
         event(state, "init")
+        state["analysis"] = analysis if analysis is not None else analysis_context(state)
         try:
             conn.execute("INSERT INTO snapshot VALUES (1, ?)", (dump(state),))
         except sqlite3.IntegrityError:
             raise UserError(f"Кейс {folder.name} уже существует.") from None
-    return summary(state)
+    return {**summary(state), "analysis": state["analysis"]}
 
 
 @contextmanager
@@ -102,6 +118,13 @@ def next_stage(state):
     return next((stage for stage in STAGES if stage not in state["checkpoints"]), "monitor")
 
 
+def analysis_context(state):
+    if "analysis" in state:
+        return state["analysis"]
+    created_at = next((entry["at"] for entry in state["journal"] if entry["action"] == "init"), None)
+    return {"as_of": created_at, "timezone": "UTC", "periods": []} if created_at else None
+
+
 def summary(state):
     return {
         "case": state["case"],
@@ -120,7 +143,7 @@ def archive(state, stage, reason):
     if previous:
         state["history"].append({
             "revision": state["revision"], "at": utc_now(), "reason": reason,
-            "checkpoints": previous, "tracking": state["tracking"],
+            "checkpoints": previous, "tracking": state["tracking"], "analysis": analysis_context(state),
         })
         for key in previous:
             del state["checkpoints"][key]

@@ -1,0 +1,350 @@
+{
+  "before": {
+    "case": "reserve-live",
+    "revision": 13,
+    "archived": true,
+    "analysis": {
+      "as_of": "2026-11-11T12:00:00+03:00",
+      "timezone": "Europe/Moscow",
+      "periods": [
+        {
+          "label": "W43",
+          "start": "2026-10-19",
+          "end": "2026-10-25"
+        },
+        {
+          "label": "W44",
+          "start": "2026-10-26",
+          "end": "2026-11-01"
+        }
+      ]
+    },
+    "claim": {
+      "id": "C2",
+      "type": "fact",
+      "scope": "demo",
+      "text": "По первичному снимку тест восстановления за 7 дней завершили 90/200 = 45% в W43 и 70/200 = 35% в W44.",
+      "limits": "Падение на 10 п. п. зафиксировано в выгрузке. Полноту регистрации успешных событий ещё предстоит сверить.",
+      "refs": [
+        {
+          "source": "S002",
+          "start": 2,
+          "end": 5
+        },
+        {
+          "source": "S001",
+          "start": 5,
+          "end": 6
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W43"
+          },
+          "numerator": "verified_restore_7d",
+          "denominator": "eligible_trials",
+          "expected": {
+            "numerator": 90,
+            "denominator": 200
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W44"
+          },
+          "numerator": "verified_restore_7d",
+          "denominator": "eligible_trials",
+          "expected": {
+            "numerator": 70,
+            "denominator": 200
+          }
+        }
+      ]
+    },
+    "sources": [
+      {
+        "source": "S002",
+        "start": 2,
+        "end": 5,
+        "sheet": "Trials",
+        "timing": {
+          "period": {
+            "start": "2026-10-19",
+            "end": "2026-11-01"
+          },
+          "data_as_of": "2026-11-09T12:00:00+03:00",
+          "timezone": "+03:00"
+        },
+        "origin": "materials/trial_v1.xlsx",
+        "kind": "synthetic",
+        "current_status": "superseded",
+        "captured_at": "2026-11-11T16:32:22+00:00",
+        "text_sha256": "f9d59ecb871a1eb017a0759a0908a08a847dccb2e763698166305504e7b9f4b0",
+        "lines": [
+          {
+            "line": 2,
+            "text": "2026-W43,Windows,120,84,48",
+            "row": 2
+          },
+          {
+            "line": 3,
+            "text": "2026-W43,macOS,80,56,42",
+            "row": 3
+          },
+          {
+            "line": 4,
+            "text": "2026-W44,Windows,140,112,32",
+            "row": 4
+          },
+          {
+            "line": 5,
+            "text": "2026-W44,macOS,60,48,38",
+            "row": 5
+          }
+        ],
+        "preview_truncated": false
+      },
+      {
+        "source": "S001",
+        "start": 5,
+        "end": 6,
+        "origin": "materials/pilot.md",
+        "kind": "synthetic",
+        "current_status": "active",
+        "captured_at": "2026-11-11T16:32:02+00:00",
+        "text_sha256": "383478247a753dca1dba3c91dfb2f17a5983679b0024dcba9f00089aecfd656a",
+        "lines": [
+          {
+            "line": 5,
+            "text": "На неделе W44 пилот поменял первый экран запуска на обеих платформах. На Windows одновременно обновился компонент отправки событий проверки. Наблюдение по неделям не было случайным экспериментом. Полнота событий в первичной выгрузке не сверена."
+          },
+          {
+            "line": 6,
+            "text": "В таблице eligible_trials — число допустимых пробных команд с завершившимися 7 днями наблюдения после старта. first_backup и verified_restore_7d — число этих команд с первой копией и успешной проверкой одного файла за те же 7 дней. Команда учтена один раз в неделе и на основной платформе. Период стартов 2026-10-19 — 2026-11-01. Срез 2026-11-09T12:00:00+03:00. Календарь пилота +03:00."
+          }
+        ],
+        "preview_truncated": false
+      }
+    ],
+    "verified_rates": [
+      {
+        "source": "S002",
+        "numerator_column": "verified_restore_7d",
+        "denominator_column": "eligible_trials",
+        "group": {
+          "week": "2026-W43"
+        },
+        "numerator": 90,
+        "denominator": 200,
+        "refs": [
+          {
+            "start": 2,
+            "end": 2
+          },
+          {
+            "start": 3,
+            "end": 3
+          }
+        ],
+        "percent": 45.0
+      },
+      {
+        "source": "S002",
+        "numerator_column": "verified_restore_7d",
+        "denominator_column": "eligible_trials",
+        "group": {
+          "week": "2026-W44"
+        },
+        "numerator": 70,
+        "denominator": 200,
+        "refs": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 5,
+            "end": 5
+          }
+        ],
+        "percent": 35.0
+      }
+    ],
+    "verified_cells": []
+  },
+  "after": {
+    "case": "reserve-live",
+    "revision": 18,
+    "archived": false,
+    "analysis": {
+      "as_of": "2026-11-11T12:00:00+03:00",
+      "timezone": "Europe/Moscow",
+      "periods": [
+        {
+          "label": "W43",
+          "start": "2026-10-19",
+          "end": "2026-10-25"
+        },
+        {
+          "label": "W44",
+          "start": "2026-10-26",
+          "end": "2026-11-01"
+        }
+      ]
+    },
+    "claim": {
+      "id": "C2",
+      "type": "fact",
+      "scope": "demo",
+      "text": "Уточнённая доля подтверждённых проверок выросла с 90/200 = 45% в W43 до 100/200 = 50% в W44.",
+      "limits": "Исправлено первичное наблюдение для того же периода. До/после оставляет эффект экрана неизвестным.",
+      "refs": [
+        {
+          "source": "S005",
+          "start": 2,
+          "end": 5
+        },
+        {
+          "source": "S001",
+          "start": 6,
+          "end": 6
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W43"
+          },
+          "numerator": "verified_restore_7d",
+          "denominator": "eligible_trials",
+          "expected": {
+            "numerator": 90,
+            "denominator": 200
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W44"
+          },
+          "numerator": "verified_restore_7d",
+          "denominator": "eligible_trials",
+          "expected": {
+            "numerator": 100,
+            "denominator": 200
+          }
+        }
+      ]
+    },
+    "sources": [
+      {
+        "source": "S005",
+        "start": 2,
+        "end": 5,
+        "sheet": "Trials",
+        "timing": {
+          "period": {
+            "start": "2026-10-19",
+            "end": "2026-11-01"
+          },
+          "data_as_of": "2026-11-11T12:00:00+03:00",
+          "timezone": "+03:00"
+        },
+        "origin": "materials/trial_v2.xlsx",
+        "kind": "synthetic",
+        "current_status": "active",
+        "captured_at": "2026-11-11T16:37:09+00:00",
+        "text_sha256": "e5676c417bedeeab2de9409ea769a62a3411a42a60cfb5fa683ac35098cb6c90",
+        "lines": [
+          {
+            "line": 2,
+            "text": "2026-W43,Windows,120,84,48",
+            "row": 2
+          },
+          {
+            "line": 3,
+            "text": "2026-W43,macOS,80,56,42",
+            "row": 3
+          },
+          {
+            "line": 4,
+            "text": "2026-W44,Windows,140,112,62",
+            "row": 4
+          },
+          {
+            "line": 5,
+            "text": "2026-W44,macOS,60,48,38",
+            "row": 5
+          }
+        ],
+        "preview_truncated": false
+      },
+      {
+        "source": "S001",
+        "start": 6,
+        "end": 6,
+        "origin": "materials/pilot.md",
+        "kind": "synthetic",
+        "current_status": "active",
+        "captured_at": "2026-11-11T16:32:02+00:00",
+        "text_sha256": "383478247a753dca1dba3c91dfb2f17a5983679b0024dcba9f00089aecfd656a",
+        "lines": [
+          {
+            "line": 6,
+            "text": "В таблице eligible_trials — число допустимых пробных команд с завершившимися 7 днями наблюдения после старта. first_backup и verified_restore_7d — число этих команд с первой копией и успешной проверкой одного файла за те же 7 дней. Команда учтена один раз в неделе и на основной платформе. Период стартов 2026-10-19 — 2026-11-01. Срез 2026-11-09T12:00:00+03:00. Календарь пилота +03:00."
+          }
+        ],
+        "preview_truncated": false
+      }
+    ],
+    "verified_rates": [
+      {
+        "source": "S005",
+        "numerator_column": "verified_restore_7d",
+        "denominator_column": "eligible_trials",
+        "group": {
+          "week": "2026-W43"
+        },
+        "numerator": 90,
+        "denominator": 200,
+        "refs": [
+          {
+            "start": 2,
+            "end": 2
+          },
+          {
+            "start": 3,
+            "end": 3
+          }
+        ],
+        "percent": 45.0
+      },
+      {
+        "source": "S005",
+        "numerator_column": "verified_restore_7d",
+        "denominator_column": "eligible_trials",
+        "group": {
+          "week": "2026-W44"
+        },
+        "numerator": 100,
+        "denominator": 200,
+        "refs": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 5,
+            "end": 5
+          }
+        ],
+        "percent": 50.0
+      }
+    ],
+    "verified_cells": []
+  }
+}

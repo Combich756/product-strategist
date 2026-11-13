@@ -1,0 +1,4 @@
+pypdf==6.21.4
+python-docx==1.2.0
+openpyxl==3.1.5
+tzdata; sys_platform == "win32"

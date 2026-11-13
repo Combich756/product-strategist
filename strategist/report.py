@@ -1,11 +1,74 @@
 """Render the saved artifacts for human review."""
 
-from .state import followup, next_stage
+import re
+from html import escape
+
+from .analysis import format_rate
+from .checkpoints import cell_checks, rate_checks, render_claim_text
+from .sources import line_location, source_lines
+from .state import analysis_context, followup, need, next_stage
+
+
+def claim_evidence(state, claim_id, revision):
+    saved = state["checkpoints"]
+    analysis = analysis_context(state)
+    if revision is not None:
+        archive = next((entry for entry in state["history"] if entry["revision"] == revision), None)
+        need(archive is not None, f"Архивная ревизия {revision} отсутствует. Список ревизий: history.")
+        saved = archive["checkpoints"]
+        analysis = archive.get("analysis")
+    claim = next((item for item in saved.get("research", {}).get("claims", []) if item["id"] == claim_id), None)
+    need(claim is not None, f"Вывод {claim_id} отсутствует в выбранном исследовании.")
+    excerpts = []
+    for ref in claim["refs"]:
+        source = state["sources"][ref["source"]]
+        preview_end = min(ref["end"], ref["start"] + 11)
+        preview = source_lines(source)[ref["start"] - 1:preview_end]
+        location = {"sheet": source["sheet"]} if "sheet" in source else {}
+        timing = {"timing": source["timing"]} if "timing" in source else {}
+        excerpts.append({
+            **ref, **location, **timing, "origin": source["origin"], "kind": source["kind"],
+            "current_status": source["status"], "captured_at": source["captured_at"],
+            "text_sha256": source["text_sha256"],
+            "lines": [{"line": index, "text": line[:500], **line_location(source, index)}
+                      for index, line in enumerate(preview, ref["start"])],
+            "preview_truncated": preview_end < ref["end"] or any(len(line) > 500 for line in preview),
+        })
+    verified_rates = rate_checks(state["sources"], claim, {})
+    return {
+        "case": state["case"], "revision": state["revision"] if revision is None else revision,
+        "archived": revision is not None, "analysis": analysis, "claim": claim, "sources": excerpts,
+        "rendered_text": render_claim_text(claim, verified_rates), "verified_rates": verified_rates,
+        "verified_cells": cell_checks(state["sources"], claim, {}),
+    }
+
+
+def rate_summary(result):
+    group = ", ".join(f"{key}={value}" for key, value in result["group"].items()) or "вся таблица"
+    group = re.sub(r"([\\`*_\[\]()|])", r"\\\1", escape(" ".join(group.split())))
+    return f"`{result['source']}`, {group} — {format_rate(result)}"
 
 
 def items(lines, record, labels):
     for key, title in labels.items():
         lines.append(f"- **{title}.** {record[key]}")
+
+
+def source_timing_label(source):
+    timing = source.get("timing")
+    if not timing:
+        return ""
+    parts = []
+    for key, label in (("period", "период данных"), ("validity", "срок действия")):
+        if key in timing:
+            dates = timing[key]
+            parts.append(f"{label} {dates.get('start', '…')} — {dates.get('end', '…')}")
+    if "data_as_of" in timing:
+        parts.append(f"срез {timing['data_as_of']}")
+    if "timezone" in timing:
+        parts.append(f"часовой пояс {timing['timezone']}")
+    parts.append(f"импорт {source['captured_at']}")
+    return " · " + " · ".join(parts)
 
 
 def report(state, as_of):
@@ -16,6 +79,14 @@ def report(state, as_of):
         "", f"**Состояние.** Ревизия {state['revision']}, следующий этап `{next_stage(state)}`"
         + (", кейс приостановлен." if state["paused"] else "."),
     ]
+    analysis = analysis_context(state)
+    if analysis:
+        lines += ["", f"**Момент анализа.** {analysis['as_of']} ({analysis['timezone']})."]
+        if analysis.get("periods"):
+            lines += ["", "## Периоды сравнения", ""]
+            for period in analysis["periods"]:
+                label = escape(" ".join(period["label"].split()))
+                lines.append(f"- {label} · {period['start']} — {period['end']}.")
     if "brief" in saved:
         brief = saved["brief"]
         lines += ["", "## Постановка", ""]
@@ -26,11 +97,16 @@ def report(state, as_of):
     if "research" in saved:
         research = saved["research"]
         lines += ["", "## Исследование", "", research["comparison"], ""]
+        rate_cache = {}
         for claim in research["claims"]:
             refs = ", ".join(f"{ref['source']}:L{ref['start']}–L{ref['end']}" for ref in claim["refs"])
-            lines.append(f"- **{claim['id']} · {claim['type']} · {claim['scope']}.** {claim['text']}"
+            checks = rate_checks(state["sources"], claim, rate_cache)
+            text = render_claim_text(claim, checks)
+            lines.append(f"- **{claim['id']} · {claim['type']} · {claim['scope']}.** {text}"
                          + (f" [{refs}]." if refs else "")
                          + f" **Граница вывода.** {claim['limits']}")
+            if checks:
+                lines.append("  - **Пересчёт по таблице.** " + ", ".join(map(rate_summary, checks)) + ".")
         lines += ["", "Открытые вопросы", ""]
         lines += [f"- {gap}" for gap in research["gaps"]]
     if "options" in saved:
@@ -40,6 +116,8 @@ def report(state, as_of):
             items(lines, option, {"action": "Действие", "benefit": "Польза", "objection": "Возражение",
                                   "economics": "Экономика"})
             lines.append("- **Основания.** " + ", ".join(option["claims"]))
+        if saved["options"].get("assumptions"):
+            lines += ["", "Допущения и оценки", "", *[f"- {x}" for x in saved["options"]["assumptions"]]]
     if "strategy" in saved:
         strategy = saved["strategy"]
         lines += ["", "## Рекомендация", "", f"**{strategy['option']}.** {strategy['rationale']}",
@@ -58,6 +136,8 @@ def report(state, as_of):
               "denominator": "Единица и знаменатель", "control": "Сравнение", "window": "Срок",
               "threshold": "Порог", "guardrails": "Защитные показатели"})
         lines.append("- **Основания.** " + ", ".join(strategy["test"]["claims"]))
+        if strategy.get("assumptions"):
+            lines += ["", "Допущения и основания порогов", "", *[f"- {x}" for x in strategy["assumptions"]]]
     if "decision" in saved:
         decision = saved["decision"]
         lines += ["", "## Решение и обязательства", "",
@@ -79,6 +159,7 @@ def report(state, as_of):
         lines += ["", "## Источники", ""]
         for key, source in state["sources"].items():
             origin = source["origin"]
+            sheet = f" · лист «{escape(' '.join(source['sheet'].split()))}»" if "sheet" in source else ""
             lines.append(f"- **{key} · {source['kind']} · {source['status']}.** "
-                         f"{source['acquisition']}. {origin}")
+                         f"{source['acquisition']}. {origin}{sheet}{source_timing_label(source)}")
     return "\n".join(lines) + "\n"

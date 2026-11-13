@@ -1,0 +1,286 @@
+{
+  "before": {
+    "case": "demo",
+    "revision": 14,
+    "archived": true,
+    "claim": {
+      "id": "C1",
+      "type": "fact",
+      "scope": "demo",
+      "text": "В первой версии W41: {{rate:1}}; W42: {{rate:2}}, разница −11 п. п.",
+      "limits": "Отражает состояние первой выгрузки, окно и состав когорты заданы паспортом",
+      "refs": [
+        {
+          "source": "S002",
+          "start": 2,
+          "end": 5
+        },
+        {
+          "source": "S001",
+          "start": 5,
+          "end": 5
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        },
+        {
+          "source": "S002",
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 236,
+            "denominator": 400
+          }
+        }
+      ]
+    },
+    "sources": [
+      {
+        "source": "S002",
+        "start": 2,
+        "end": 5,
+        "origin": "materials/funnel_v1.csv",
+        "kind": "synthetic",
+        "current_status": "superseded",
+        "text_sha256": "e9f1ef0fc718f3b781ff44efb419cd15fa6b2fce08276014785cf30a30356ce7",
+        "lines": [
+          {
+            "line": 2,
+            "text": "2026-W41,iOS,300,210"
+          },
+          {
+            "line": 3,
+            "text": "2026-W41,Android,100,70"
+          },
+          {
+            "line": 4,
+            "text": "2026-W42,iOS,180,126"
+          },
+          {
+            "line": 5,
+            "text": "2026-W42,Android,220,110"
+          }
+        ],
+        "preview_truncated": false
+      },
+      {
+        "source": "S001",
+        "start": 5,
+        "end": 5,
+        "origin": "materials/pilot.md",
+        "kind": "synthetic",
+        "current_status": "active",
+        "text_sha256": "6f1896a0bb5892d9799aa1696bfcda5d4e730eaf59b0653022f76608b107500a",
+        "lines": [
+          {
+            "line": 5,
+            "text": "В выгрузке за W41 и W42 единица — оплаченный совместимый заказ с известной датой прибытия, для которого прошли 48 часов после прибытия. `connected_48h` — заказы с первой сессией мобильных данных по eSIM в течение этих 48 часов. Срезы по платформе и неделе не пересекаются."
+          }
+        ],
+        "preview_truncated": false
+      }
+    ],
+    "rendered_text": "В первой версии W41: 280/400 = 70%; W42: 236/400 = 59%, разница −11 п. п.",
+    "verified_rates": [
+      {
+        "source": "S002",
+        "numerator_column": "connected_48h",
+        "denominator_column": "eligible_orders",
+        "group": {
+          "week": "2026-W41"
+        },
+        "numerator": 280,
+        "denominator": 400,
+        "refs": [
+          {
+            "start": 2,
+            "end": 2
+          },
+          {
+            "start": 3,
+            "end": 3
+          }
+        ],
+        "percent": 70.0
+      },
+      {
+        "source": "S002",
+        "numerator_column": "connected_48h",
+        "denominator_column": "eligible_orders",
+        "group": {
+          "week": "2026-W42"
+        },
+        "numerator": 236,
+        "denominator": 400,
+        "refs": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 5,
+            "end": 5
+          }
+        ],
+        "percent": 59.0
+      }
+    ],
+    "verified_cells": []
+  },
+  "after": {
+    "case": "demo",
+    "revision": 19,
+    "archived": false,
+    "claim": {
+      "id": "C1",
+      "type": "fact",
+      "scope": "demo",
+      "text": "После коррекции обе недели дают {{rate:1}}; разница 0 п. п.",
+      "limits": "Две зрелые недели в синтетической выборке, без утверждения о длительном тренде",
+      "refs": [
+        {
+          "source": "S005",
+          "start": 2,
+          "end": 5
+        },
+        {
+          "source": "S001",
+          "start": 5,
+          "end": 5
+        }
+      ],
+      "rate_checks": [
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W41"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        },
+        {
+          "source": "S005",
+          "group": {
+            "week": "2026-W42"
+          },
+          "numerator": "connected_48h",
+          "denominator": "eligible_orders",
+          "expected": {
+            "numerator": 280,
+            "denominator": 400
+          }
+        }
+      ]
+    },
+    "sources": [
+      {
+        "source": "S005",
+        "start": 2,
+        "end": 5,
+        "origin": "materials/funnel_v2.csv",
+        "kind": "synthetic",
+        "current_status": "active",
+        "text_sha256": "c3222653bb7aa22bbf6840ed8da7dc47a95bbf97e549bf17e29f29ad66a91765",
+        "lines": [
+          {
+            "line": 2,
+            "text": "2026-W41,iOS,300,210"
+          },
+          {
+            "line": 3,
+            "text": "2026-W41,Android,100,70"
+          },
+          {
+            "line": 4,
+            "text": "2026-W42,iOS,180,126"
+          },
+          {
+            "line": 5,
+            "text": "2026-W42,Android,220,154"
+          }
+        ],
+        "preview_truncated": false
+      },
+      {
+        "source": "S001",
+        "start": 5,
+        "end": 5,
+        "origin": "materials/pilot.md",
+        "kind": "synthetic",
+        "current_status": "active",
+        "text_sha256": "6f1896a0bb5892d9799aa1696bfcda5d4e730eaf59b0653022f76608b107500a",
+        "lines": [
+          {
+            "line": 5,
+            "text": "В выгрузке за W41 и W42 единица — оплаченный совместимый заказ с известной датой прибытия, для которого прошли 48 часов после прибытия. `connected_48h` — заказы с первой сессией мобильных данных по eSIM в течение этих 48 часов. Срезы по платформе и неделе не пересекаются."
+          }
+        ],
+        "preview_truncated": false
+      }
+    ],
+    "rendered_text": "После коррекции обе недели дают 280/400 = 70%; разница 0 п. п.",
+    "verified_rates": [
+      {
+        "source": "S005",
+        "numerator_column": "connected_48h",
+        "denominator_column": "eligible_orders",
+        "group": {
+          "week": "2026-W41"
+        },
+        "numerator": 280,
+        "denominator": 400,
+        "refs": [
+          {
+            "start": 2,
+            "end": 2
+          },
+          {
+            "start": 3,
+            "end": 3
+          }
+        ],
+        "percent": 70.0
+      },
+      {
+        "source": "S005",
+        "numerator_column": "connected_48h",
+        "denominator_column": "eligible_orders",
+        "group": {
+          "week": "2026-W42"
+        },
+        "numerator": 280,
+        "denominator": 400,
+        "refs": [
+          {
+            "start": 4,
+            "end": 4
+          },
+          {
+            "start": 5,
+            "end": 5
+          }
+        ],
+        "percent": 70.0
+      }
+    ],
+    "verified_cells": []
+  }
+}
