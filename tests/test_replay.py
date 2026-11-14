@@ -72,6 +72,85 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(state['next'], 'decision')
             self.assertEqual(state['impact']['previous_decision'], 'O3')
             self.assertTrue(state['impact']['review_required'])
+            self.assertEqual(state['active_decision']['option'], 'O3')
+            self.assertTrue(state['active_decision']['under_review'])
+
+    def test_approved_esim_decision_stays_in_force_until_a_new_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / "esim"
+
+            def run(command, *args, expected_code=0):
+                result = subprocess.run(
+                    [sys.executable, "-m", "strategist", "--root", directory, command, folder.name, *args],
+                    cwd=REPO, capture_output=True, text=True, timeout=15,
+                )
+                self.assertEqual(result.returncode, expected_code, result.stderr)
+                return result.stdout if command == "report" else json.loads(
+                    result.stderr if expected_code else result.stdout)
+
+            subprocess.run(
+                [sys.executable, "demo/replay.py", "--root", directory, "--case", folder.name, "--until", "decision"],
+                cwd=REPO, capture_output=True, text=True, check=True, timeout=60,
+            )
+            approved = run("status")["revision"]
+            run("track", "K1", "--status", "done", "--note", "Сверка выполнена", "--expect", str(approved))
+            before = run("followup", "--as-of", "2026-11-08")
+            (folder / "materials/note.md").write_text("Рабочее название проекта.", encoding="utf-8")
+            run("ingest", "--file", "note.md", "--kind", "synthetic")
+            reviewing = run("status")
+            self.assertEqual(reviewing["next"], "research")
+            self.assertEqual(reviewing["impact"]["affected_claims"], [])
+            self.assertTrue(reviewing["active_decision"]["under_review"])
+            self.assertEqual(run("followup", "--as-of", "2026-11-08")["commitments"], before["commitments"])
+            self.assertIn("Действует, идёт пересмотр оснований", run("report"))
+            self.assertIn("Ревизия изменилась", run(
+                "track", "K2", "--status", "cancelled", "--note", "Подготовка отменена",
+                "--expect", str(approved), expected_code=2,
+            )["error"])
+            shutil.copyfile(REPO / "demo/materials/funnel_v2.csv", folder / "materials/funnel_v2.csv")
+            run("ingest", "--file", "funnel_v2.csv", "--kind", "synthetic", "--replaces", "S002")
+            self.assertIn("C1", run("status")["impact"]["affected_claims"])
+            # The extra note received S005, so the corrected funnel is S006 in this case.
+            for stage in ("research", "options", "strategy"):
+                path = REPO / "demo/checkpoints" / f"{stage}_v2.json"
+                draft = folder / path.name
+                content = path.read_text(encoding="utf-8")
+                if stage == "research":
+                    shutil.copyfile(REPO / "demo/materials/correction.md", folder / "materials/correction.md")
+                    run("ingest", "--file", "correction.md", "--kind", "synthetic")
+                    content = content.replace('"S006"', '"S007"').replace('"S005"', '"S006"')
+                draft.write_text(content, encoding="utf-8")
+                run("save", stage, str(draft), "--expect", str(run("status")["revision"]))
+
+            pending = run("followup", "--as-of", "2026-11-08")
+            self.assertEqual(pending["next"], "decision")
+            self.assertEqual(pending["active_decision"]["approved_revision"], approved)
+            self.assertEqual(pending["active_decision"]["option"], "O3")
+            self.assertEqual([item["status"] for item in pending["commitments"]], ["done", "open"])
+            replacement = json.loads((REPO / "demo/checkpoints/decision_v1.json").read_text(encoding="utf-8"))
+            replacement["option"] = "O1"
+            replacement["rationale"] = "После коррекции достаточно контролировать полноту событий."
+            replacement["commitments"] = [{
+                "id": "K1", "task": "Проверять полноту событий", "owner": "Аналитик",
+                "due": "2026-11-20", "metric": "Расхождение с независимым журналом", "trigger": "Новый сбой",
+            }]
+            decision_file = folder / "decision-v2.json"
+            decision_file.write_text(json.dumps(replacement, ensure_ascii=False), encoding="utf-8")
+            run("check", "decision", str(decision_file))
+            self.assertEqual(run("followup", "--as-of", "2026-11-08"), pending)
+            run("track", "K2", "--status", "cancelled", "--note", "Владелец отменил подготовку",
+                "--expect", str(run("status")["revision"]))
+            decided = run("decide", str(decision_file), "--expect", str(run("status")["revision"]))
+            self.assertEqual(decided["next"], "monitor")
+            self.assertFalse(decided["impact"]["review_required"])
+            self.assertEqual(decided["active_decision"]["option"], "O1")
+            self.assertFalse(decided["active_decision"]["under_review"])
+            current = run("followup", "--as-of", "2026-11-08")["commitments"]
+            self.assertEqual([(item["id"], item["status"]) for item in current], [("K1", "open")])
+            archive = run("history")[0]
+            self.assertEqual(archive["tracking"]["K1"]["status"], "done")
+            self.assertEqual(archive["final_tracking"]["K2"]["status"], "cancelled")
+            self.assertEqual(run("journal")[-1]["replaces_decision_revision"], approved)
 
     def test_pending_strategy_can_be_recovered_without_approving_a_decision(self):
         with tempfile.TemporaryDirectory() as directory:

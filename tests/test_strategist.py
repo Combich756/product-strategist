@@ -2,11 +2,13 @@ import contextlib
 import io
 import json
 import socket
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from strategist import state
 from strategist.analysis import rates
 from strategist.cli import main
 from strategist.sources import normalize_url, parse_html, public_addresses
@@ -63,6 +65,37 @@ class CaseTests(unittest.TestCase):
         self.save("brief", self.brief())
         self.assertEqual(self.call("status")["revision"], revision)
         self.assertEqual(self.call("context")["next"], "research")
+
+    def test_followup_recovers_approval_archived_by_older_version(self):
+        folder = self.root / "test"
+        database = folder / "state.sqlite3"
+        decision = {"option": "O3", "approved_by": "Владелец пилота", "rationale": "Действует подготовка",
+                    "commitments": [{"id": "K1", "task": "Сверка", "owner": "Аналитик",
+                                     "due": "2026-11-06", "metric": "Доля", "trigger": "Новый срез"}]}
+        with sqlite3.connect(database) as conn:
+            data = json.loads(conn.execute("SELECT payload FROM snapshot").fetchone()[0])
+            del data["active_decision"]
+            data["checkpoints"]["brief"] = self.brief()
+            state.event(data, "save", stage="decision")
+            approved = data["revision"]
+            data["history"].append({
+                "revision": approved + 1, "checkpoints": {"decision": decision},
+                "tracking": {"K1": {"status": "done", "note": "Готово", "at": state.utc_now()}},
+            })
+            data["revision"] = approved + 2
+            conn.execute("UPDATE snapshot SET payload = ?", (json.dumps(data),))
+
+        before = database.read_bytes()
+        result = self.call("followup", "--as-of", "2026-11-08")
+        self.assertEqual(result["next"], "research")
+        self.assertEqual(result["active_decision"]["approved_revision"], approved)
+        self.assertTrue(result["active_decision"]["under_review"])
+        self.assertEqual(result["commitments"][0]["status"], "done")
+        self.assertEqual(database.read_bytes(), before)
+        self.call("track", "K1", "--status", "open", "--note", "Повторная сверка", "--expect", str(approved + 2))
+        with state.case(folder) as data:
+            self.assertEqual(data["active_decision"]["artifact"], decision)
+            self.assertEqual(data["tracking"]["K1"]["status"], "open")
 
     def test_replacements_update_impact_and_keep_history(self):
         first = self.local("a.md", "Первая версия")["source"]

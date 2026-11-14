@@ -69,6 +69,7 @@ def init(folder, request, *, analysis=None):
             "checkpoints": {},
             "history": [],
             "impact": None,
+            "active_decision": None,
             "tracking": {},
             "journal": [],
         }
@@ -102,6 +103,8 @@ def case(folder, *, write=False, expect=None, while_paused=False):
                 raise UserError(f"Ревизия изменилась: ожидается {expect}, текущая {revision}. Прочитайте status.")
             if write and state["paused"] and not while_paused:
                 raise UserError("Кейс приостановлен. Для изменений выполните resume.")
+            if "active_decision" not in state:
+                restore_approved_decision(state)
             yield state
             if write and state["revision"] != revision:
                 conn.execute("UPDATE snapshot SET payload=? WHERE id=1", (dump(state),))
@@ -125,6 +128,34 @@ def analysis_context(state):
     return {"as_of": created_at, "timezone": "UTC", "periods": []} if created_at else None
 
 
+def restore_approved_decision(state):
+    """Recover the approval and tracking recorded by older versions of the CLI."""
+    decision = state["checkpoints"].get("decision")
+    if decision is None:
+        for entry in reversed(state["history"]):
+            if "decision" in entry["checkpoints"]:
+                decision = entry["checkpoints"]["decision"]
+                state["tracking"] = entry["tracking"].copy()
+                break
+    state["active_decision"] = None
+    if decision is not None:
+        approved_revision = next((entry["revision"] for entry in reversed(state["journal"])
+                                  if entry["action"] == "save" and entry.get("stage") == "decision"), None)
+        state["active_decision"] = {"approved_revision": approved_revision, "artifact": decision}
+
+
+def decision_summary(state):
+    active = state["active_decision"]
+    if active is None:
+        return None
+    artifact = active["artifact"]
+    return {
+        "option": artifact["option"], "approved_by": artifact["approved_by"],
+        "approved_revision": active["approved_revision"],
+        "under_review": "decision" not in state["checkpoints"],
+    }
+
+
 def summary(state):
     return {
         "case": state["case"],
@@ -134,6 +165,7 @@ def summary(state):
         "checkpoints": list(state["checkpoints"]),
         "active_sources": [key for key, source in state["sources"].items() if source["status"] == "active"],
         "impact": state["impact"],
+        "active_decision": decision_summary(state),
     }
 
 
@@ -143,21 +175,35 @@ def archive(state, stage, reason):
     if previous:
         state["history"].append({
             "revision": state["revision"], "at": utc_now(), "reason": reason,
-            "checkpoints": previous, "tracking": state["tracking"], "analysis": analysis_context(state),
+            "checkpoints": previous, "tracking": state["tracking"].copy() if "decision" in previous else {},
+            "analysis": analysis_context(state),
         })
         for key in previous:
             del state["checkpoints"][key]
-        state["tracking"] = {}
+
+
+def activate_decision(state, artifact):
+    previous = state["active_decision"]
+    if previous is not None:
+        for entry in reversed(state["history"]):
+            if "decision" in entry["checkpoints"]:
+                entry["final_tracking"] = state["tracking"].copy()
+                break
+    state["active_decision"] = {"approved_revision": state["revision"], "artifact": artifact}
+    state["tracking"] = {}
+    if state["impact"]:
+        state["impact"]["review_required"] = False
 
 
 def invalidate_for_source(state, source_id, replaced=None):
     saved = state["checkpoints"]
     impact = state["impact"]
     if "research" in saved:
+        active = state["active_decision"]
         impact = {
             "baseline_revision": state["revision"],
             "source_changes": [],
-            "previous_decision": saved.get("decision", {}).get("option"),
+            "previous_decision": active["artifact"]["option"] if active else None,
             "review_required": True,
         }
         state["impact"] = impact
@@ -184,20 +230,23 @@ def invalidate_for_source(state, source_id, replaced=None):
 
 
 def followup(state, as_of):
-    decision = state["checkpoints"].get("decision")
-    if decision is None:
-        return {"as_of": as_of, "commitments": [], "next": next_stage(state)}
+    active = state["active_decision"]
+    result = {"as_of": as_of, "commitments": [], "next": next_stage(state),
+              "active_decision": decision_summary(state)}
+    if active is None:
+        return result
+    decision = active["artifact"]
+    result["active_decision"]["rationale"] = decision["rationale"]
     as_of = date.fromisoformat(as_of)
-    commitments = []
     for item in decision["commitments"]:
         check = state["tracking"].get(item["id"], {})
         due = date.fromisoformat(item["due"])
         status = check.get("status", "open")
-        commitments.append({
+        result["commitments"].append({
             **item,
             "status": status,
             "due_state": ("overdue" if due < as_of else "due" if due == as_of else "upcoming")
             if status == "open" else "closed",
             "last_check": check or None,
         })
-    return {"as_of": as_of.isoformat(), "commitments": commitments}
+    return result

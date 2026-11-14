@@ -138,12 +138,16 @@ def report(state, as_of):
         lines.append("- **Основания.** " + ", ".join(strategy["test"]["claims"]))
         if strategy.get("assumptions"):
             lines += ["", "Допущения и основания порогов", "", *[f"- {x}" for x in strategy["assumptions"]]]
-    if "decision" in saved:
-        decision = saved["decision"]
+    monitoring = followup(state, as_of)
+    decision = monitoring["active_decision"]
+    if decision is not None:
         lines += ["", "## Решение и обязательства", "",
                   f"**{decision['option']} · {decision['approved_by']}.** {decision['rationale']}", ""]
-        for item in followup(state, as_of)["commitments"]:
-            lines.append(f"- **{item['id']} · {item['owner']} · {item['due']} · {item['due_state']}.** "
+        if decision["under_review"]:
+            lines += ["**Состояние решения.** Действует, идёт пересмотр оснований.", ""]
+        for item in monitoring["commitments"]:
+            status = item["status"] if item["status"] != "open" else item["due_state"]
+            lines.append(f"- **{item['id']} · {item['owner']} · {item['due']} · {status}.** "
                          f"{item['task']} Метрика — {item['metric']}. Условие пересмотра — {item['trigger']}.")
     if state["impact"]:
         impact = state["impact"]

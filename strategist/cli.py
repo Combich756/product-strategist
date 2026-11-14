@@ -138,14 +138,14 @@ def pause_or_resume(folder, args):
 
 def track(folder, args):
     with state.case(folder, write=True, expect=args.expect) as data:
-        decision = data["checkpoints"].get("decision", {})
-        checkpoints.need(any(item["id"] == args.commitment for item in decision.get("commitments", [])),
+        active = data["active_decision"]
+        checkpoints.need(active and any(item["id"] == args.commitment for item in active["artifact"]["commitments"]),
                          "Обязательство отсутствует в действующем решении.")
         check = {"status": args.status, "note": args.note}
         previous = data["tracking"].get(args.commitment)
         if not previous or any(previous[key] != value for key, value in check.items()):
             data["tracking"][args.commitment] = {**check, "at": state.utc_now()}
-            state.event(data, "track", commitment=args.commitment, **check)
+            state.event(data, "track", commitment=args.commitment, decision_revision=active["approved_revision"], **check)
         return state.followup(data, date.today().isoformat())
 
 

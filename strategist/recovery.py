@@ -46,11 +46,13 @@ def save_draft(folder, stage, artifact, *, expect=None, run_id=None):
         data["checkpoints"][stage] = artifact
         if stage == "brief" and "analysis" in artifact:
             data["analysis"] = artifact["analysis"]
-        if stage == "decision" and data["impact"]:
-            data["impact"]["review_required"] = False
         details = {"qwen_run_id": run_id} if run_id else {}
+        if stage == "decision" and data["active_decision"]:
+            details["replaces_decision_revision"] = data["active_decision"]["approved_revision"]
         state.event(data, "save", stage=stage, **details,
                     artifact_sha256=hashlib.sha256(state.dump(artifact).encode()).hexdigest())
+        if stage == "decision":
+            state.activate_decision(data, artifact)
         return {**state.summary(data), "warnings": review["warnings"]}
 
 
