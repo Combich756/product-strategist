@@ -60,11 +60,13 @@ def cells(source_id, source, rows, columns):
 
 
 def rate_evidence(source_id, result):
+    adjustment = {"subtract": result["subtract_column"]} if "subtract_column" in result else {}
     return {
         "refs": merged_refs(source_id, ((ref["start"], ref["end"])
                                         for group in result["groups"] for ref in group["refs"])),
         "rate_checks": [{"source": source_id, "group": group["group"],
                          "numerator": result["numerator_column"], "denominator": result["denominator_column"],
+                         **adjustment,
                          "expected": {field: group[field] for field in ("numerator", "denominator")}}
                         for group in result["groups"]],
     }
@@ -110,10 +112,11 @@ def find(state, query, limit):
             for _, key, line, text in hits[:limit]]
 
 
-def rates(source, group_by, numerator, denominator):
+def rates(source, group_by, numerator, denominator, *, subtract=None):
     need(source["format"] in TABLE_FORMATS, "Для rates нужен CSV, TSV или лист XLSX.")
-    columns = [*group_by, numerator, denominator]
-    need(len(set(columns)) == len(columns), "Поля группировки, числителя и знаменателя должны различаться.")
+    counters = [numerator, denominator] if subtract is None else [numerator, denominator, subtract]
+    columns = [*group_by, *counters]
+    need(len(set(columns)) == len(columns), "Поля группировки и счётчиков должны различаться.")
     stream = io.StringIO(source["text"], newline="")
     rows = csv.reader(stream, delimiter="\t" if source["format"] == "tsv" else ",", strict=True)
     header = next(rows, [])
@@ -137,10 +140,14 @@ def rates(source, group_by, numerator, denominator):
         need(signature not in seen, f"Строка {first}: найден полный дубликат агрегированной строки.")
         seen.add(signature)
         try:
-            top, bottom = (int(record[name]) for name in (numerator, denominator))
+            top, bottom, *deductions = (int(record[name]) for name in counters)
         except ValueError:
             raise UserError(f"Строка {first}: показатели должны быть целыми счётчиками.") from None
         need(0 <= top <= bottom, f"Строка {first}: нужно 0 ≤ числитель ≤ знаменатель.")
+        if deductions:
+            removed = deductions[0]
+            need(0 <= removed <= top, f"Строка {first}: нужно 0 ≤ вычитаемое ≤ числитель.")
+            top -= removed
         group = tuple(record[col] for col in group_by)
         value = sums[group]
         value["numerator"] += top
@@ -148,8 +155,10 @@ def rates(source, group_by, numerator, denominator):
         value["refs"].append({"start": first, "end": rows.line_num})
         total_rows += 1
     need(total_rows, "Таблица не содержит строк данных.")
+    adjustment = {"subtract_column": subtract} if subtract is not None else {}
     return {
         "numerator_column": numerator, "denominator_column": denominator, "rows": total_rows,
+        **adjustment,
         "groups": [{
             "group": dict(zip(group_by, group)), **value,
             "percent": round(100 * value["numerator"] / value["denominator"], 2) if value["denominator"] else None,

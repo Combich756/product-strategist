@@ -10,11 +10,13 @@ import sqlite3
 import sys
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from math import isfinite
+from pathlib import Path
 from time import perf_counter
 from urllib.parse import unquote
 
 from . import analysis, budget, checkpoints, privacy, qwen, recovery, sources, state, timing
-from .report import claim_evidence, report
+from .report import claim_evidence, evidence_context, report
 
 
 def source_or_error(data, key):
@@ -88,7 +90,7 @@ def ingest(folder, args):
         if source_dates:
             source["timing"] = source_dates
         data["sources"][key] = source
-        state.invalidate_for_source(data, key, replaced)
+        state.register_source_change(data, key, replaced)
         details = {"masked_contacts": masked} if masked else {}
         state.event(data, "ingest", source=key, replaced=replaced, **details,
                     duration_ms=round(1000 * (perf_counter() - started)))
@@ -103,8 +105,42 @@ def revoke(folder, args):
         checkpoints.need(source["status"] == "active", "Отозвать можно только активный источник.")
         source["status"] = "revoked"
         source["revocation_reason"] = args.reason
-        state.invalidate_for_source(data, None, args.source)
+        state.register_source_change(data, None, args.source)
         state.event(data, "revoke", source=args.source, reason=args.reason)
+        return state.summary(data)
+
+
+def review_source(folder, args):
+    checkpoints.need(args.reason.strip(), "Укажите, как материал связан с выводами или условиями пересмотра.")
+    privacy.require_clean(args.reason, "Основание оценки источника")
+    links = {"claims": args.claims}
+    if args.questions:
+        links["questions"] = args.questions
+    if args.metrics:
+        links["metrics"] = args.metrics
+    with state.case(folder, write=True, expect=args.expect) as data:
+        source = source_or_error(data, args.source)
+        checkpoints.need(source["status"] == "active" and source.get("review_status") == "pending",
+                         f"{args.source}: нужен активный источник, ожидающий оценки.")
+        if args.outcome == "relevant":
+            baseline = state.source_review_baseline(data)
+            brief = baseline.get("brief", {})
+            declared = (
+                (args.claims, {claim["id"] for claim in baseline.get("research", {}).get("claims", [])}, "выводов"),
+                (args.questions, checkpoints.research_questions(brief).keys() if brief else set(), "вопросов"),
+                (args.metrics, {metric["id"] for metric in brief.get("metrics", [])}, "метрик"),
+            )
+            for keys, known, label in declared:
+                ids = set(keys)
+                checkpoints.need(ids <= known and len(ids) == len(keys),
+                                 f"Укажите существующие неповторяющиеся ID затронутых {label}.")
+            state.invalidate_for_source(data, args.source, source.get("replaces"), reason=args.reason, **links)
+        else:
+            checkpoints.need(not any(links.values()),
+                             "У несвязанного источника не должно быть затронутых выводов, вопросов и метрик.")
+        source["review_status"] = args.outcome
+        state.event(data, "review-source", source=args.source, outcome=args.outcome,
+                    reason=args.reason, **links)
         return state.summary(data)
 
 
@@ -156,7 +192,9 @@ def log(folder, args):
         checkpoints.need(args.currency and re.fullmatch(r"[A-Z]{3}", args.currency), "Укажите валюту из трёх букв.")
     else:
         checkpoints.need(args.currency is None, "Валюта указывается вместе с суммой.")
-    for value in (args.seconds, args.input_tokens, args.output_tokens):
+    checkpoints.need(args.seconds is None or isfinite(args.seconds) and args.seconds >= 0,
+                     "Время должно быть конечным и неотрицательным числом секунд.")
+    for value in (args.input_tokens, args.output_tokens):
         checkpoints.need(value is None or value >= 0, "Метрики не могут быть отрицательными.")
     checkpoints.need(args.attempts >= 1, "attempts: нужно положительное число.")
     with state.case(folder, write=True, while_paused=True) as data:
@@ -213,6 +251,10 @@ def inspect(folder, args):
                 if args.stage:
                     checkpoints.need(args.stage in data["checkpoints"], f"Этап {args.stage} ещё не сохранён.")
                     result["saved"] = {args.stage: data["checkpoints"][args.stage]}
+                elif args.evidence or args.review:
+                    result.update(evidence_context(data))
+                    if args.review:
+                        result["review"] = recovery.review_context(data)
                 elif not args.compact:
                     result["saved"] = data["checkpoints"]
                 return result
@@ -236,7 +278,9 @@ def inspect(folder, args):
                 source = source_or_error(data, args.source)
                 checkpoints.need(source["status"] == "active", "Используйте активный источник.")
                 result = analysis.select_groups(
-                    analysis.rates(source, args.by, args.numerator, args.denominator), args.group)
+                    analysis.rates(source, args.by, args.numerator, args.denominator, subtract=args.subtract),
+                    args.group,
+                )
                 return ({"source": args.source, **analysis.rate_evidence(args.source, result)} if args.evidence
                         else {"source": args.source, **result})
             case "cells":
@@ -280,7 +324,9 @@ def parser():
         return sub
 
     sub = command("init", "Создать кейс")
-    sub.add_argument("request")
+    request = sub.add_mutually_exclusive_group(required=True)
+    request.add_argument("request", nargs="?")
+    request.add_argument("--request-file", type=Path, help="Прочитать запрос из UTF-8 файла")
     sub.add_argument("--analysis-at", help="Момент анализа ISO 8601 со смещением. По умолчанию время создания.")
     sub.add_argument("--timezone", help="Часовой пояс анализа, например Europe/Moscow или +03:00.")
     command("allow-web", "Разрешить конкретный HTTPS URL").add_argument("url")
@@ -300,6 +346,14 @@ def parser():
     sub = command("revoke", "Отозвать активный источник")
     sub.add_argument("source")
     sub.add_argument("--reason", required=True)
+    sub = command("review-source", "Оценить новый материал по сохранённому исследованию")
+    sub.add_argument("source")
+    sub.add_argument("--outcome", choices=("relevant", "irrelevant"), required=True)
+    sub.add_argument("--reason", required=True)
+    sub.add_argument("--claims", nargs="+", default=[], metavar="CLAIM")
+    sub.add_argument("--questions", nargs="+", default=[], metavar="QUESTION", help="Вопросы брифа, например Q2")
+    sub.add_argument("--metrics", nargs="+", default=[], metavar="METRIC", help="Метрики брифа, например M5")
+    sub.add_argument("--expect", type=int, required=True)
     for name, help_ in (("save", "Сохранить артефакт этапа"), ("decide", "Записать решение человека")):
         sub = command(name, help_)
         if name == "save":
@@ -318,7 +372,7 @@ def parser():
     sub = command("log", "Записать измерение времени, токенов или стоимости")
     sub.add_argument("--kind", choices=("model", "tool", "human"), required=True)
     sub.add_argument("--label", required=True)
-    sub.add_argument("--seconds", type=int)
+    sub.add_argument("--seconds", type=float)
     sub.add_argument("--input-tokens", type=int)
     sub.add_argument("--output-tokens", type=int)
     sub.add_argument("--amount")
@@ -340,6 +394,7 @@ def parser():
     sub.add_argument("--by", nargs="+", default=[])
     sub.add_argument("--numerator", required=True)
     sub.add_argument("--denominator", required=True)
+    sub.add_argument("--subtract", metavar="COLUMN", help="Вычесть счётчик этого столбца из числителя")
     sub.add_argument("--evidence", action="store_true", help="Выдать готовые refs и rate_checks для вывода")
     sub.add_argument("--group", action="append", default=[], metavar="COLUMN=VALUE",
                      help="Выбрать группы из --by; можно повторить")
@@ -357,6 +412,9 @@ def parser():
     sub = command("context", "Показать сохранённый контекст")
     scope = sub.add_mutually_exclusive_group()
     scope.add_argument("--compact", action="store_true", help="Показать состояние без содержимого этапов")
+    scope.add_argument("--evidence", action="store_true",
+                       help="Показать вопросы, ответы, проверенные метрики и ссылки без полных артефактов")
+    scope.add_argument("--review", action="store_true", help="Показать контекст и черновик пересмотра исследования")
     scope.add_argument("--stage", choices=state.STAGES, help="Добавить содержимое одного сохранённого этапа")
     command("cost", "Показать учтённые затраты").add_argument(
         "--summary", action="store_true", help="Показать суммы без списка записей")
@@ -390,7 +448,8 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     handlers = {
-        "allow-web": allow_web, "ingest": ingest, "revoke": revoke, "save": save, "decide": save,
+        "allow-web": allow_web, "ingest": ingest, "revoke": revoke, "review-source": review_source,
+        "save": save, "decide": save,
         "reopen": reopen, "pause": pause_or_resume, "resume": pause_or_resume, "track": track, "log": log,
         "qwen-run": qwen.run,
     }
@@ -400,7 +459,8 @@ def main(argv=None):
             clock = None
             if args.analysis_at is not None or args.timezone is not None:
                 clock = timing.analysis_clock(args.analysis_at, args.timezone)
-            request, _ = privacy.review(args.request, "запрос кейса", interactive=not os.environ.get(qwen.RUN_ENV))
+            raw_request = args.request_file.read_text(encoding="utf-8-sig") if args.request_file else args.request
+            request, _ = privacy.review(raw_request, "запрос кейса", interactive=not os.environ.get(qwen.RUN_ENV))
             output = state.init(folder, request, analysis=clock)
         else:
             output = handlers.get(args.command, inspect)(folder, args)

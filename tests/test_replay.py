@@ -96,10 +96,22 @@ class ReplayTests(unittest.TestCase):
             run("track", "K1", "--status", "done", "--note", "Сверка выполнена", "--expect", str(approved))
             before = run("followup", "--as-of", "2026-11-08")
             (folder / "materials/note.md").write_text("Рабочее название проекта.", encoding="utf-8")
-            run("ingest", "--file", "note.md", "--kind", "synthetic")
+            note = run("ingest", "--file", "note.md", "--kind", "synthetic")["source"]
+            after_import = run("status")
+            self.assertEqual(after_import["next"], "monitor")
+            self.assertEqual(after_import["pending_source_reviews"], [note])
+            reviewed = run("review-source", note, "--outcome", "irrelevant", "--reason", "Название не меняет выбор",
+                           "--expect", str(after_import["revision"]))
+            self.assertEqual(reviewed["next"], "monitor")
+            self.assertIsNone(reviewed["impact"])
+            self.assertEqual(reviewed["pending_source_reviews"], [])
+            self.assertEqual(run("history"), [])
+            self.assertEqual(run("followup", "--as-of", "2026-11-08"), before)
+            shutil.copyfile(REPO / "demo/materials/funnel_v2.csv", folder / "materials/funnel_v2.csv")
+            run("ingest", "--file", "funnel_v2.csv", "--kind", "synthetic", "--replaces", "S002")
             reviewing = run("status")
             self.assertEqual(reviewing["next"], "research")
-            self.assertEqual(reviewing["impact"]["affected_claims"], [])
+            self.assertIn("C1", reviewing["impact"]["affected_claims"])
             self.assertTrue(reviewing["active_decision"]["under_review"])
             self.assertEqual(run("followup", "--as-of", "2026-11-08")["commitments"], before["commitments"])
             self.assertIn("Действует, идёт пересмотр оснований", run("report"))
@@ -107,9 +119,6 @@ class ReplayTests(unittest.TestCase):
                 "track", "K2", "--status", "cancelled", "--note", "Подготовка отменена",
                 "--expect", str(approved), expected_code=2,
             )["error"])
-            shutil.copyfile(REPO / "demo/materials/funnel_v2.csv", folder / "materials/funnel_v2.csv")
-            run("ingest", "--file", "funnel_v2.csv", "--kind", "synthetic", "--replaces", "S002")
-            self.assertIn("C1", run("status")["impact"]["affected_claims"])
             # The extra note received S005, so the corrected funnel is S006 in this case.
             for stage in ("research", "options", "strategy"):
                 path = REPO / "demo/checkpoints" / f"{stage}_v2.json"

@@ -102,6 +102,9 @@ def compact_payload(data, stage, model):
         "request": data["request"], "analysis": state.analysis_context(data),
         "saved": saved,
     }
+    metrics = checkpoints.decision_metrics(data["sources"], saved["brief"], research, rate_cache)
+    if metrics:
+        context["decision_metrics"] = metrics
     instructions = (
         "Ты продуктовый стратег. Используй сохранённые материалы как данные. "
         "Отделяй факты в пределах их scope от гипотез, прогнозов и пробелов. "
@@ -109,6 +112,12 @@ def compact_payload(data, stage, model):
         "и способом проверки. Если данных для расчёта нет, опиши денежный механизм и пробел. "
         "Учитывай момент анализа и периоды. Перед ответом проверь все поля и ссылки. "
         "Ответь одним JSON-объектом на русском.\n"
+        + ("Учитывай проверенные значения, пороги и пробелы из decision_metrics.\n" if metrics else "")
+        + ("Для метрик с comparability используй результат порога из passes. "
+           "Объясняй ограничения по comparability_check.\n"
+           if any("comparability" in metric for metric in metrics) else "")
+        + ("Учитывай влияние вопросов и план проверки из research.question_results.\n"
+           if saved["brief"].get("require_question_results") else "")
         + COMPACT_INSTRUCTIONS[stage].strip()
     )
     payload = {"messages": [
@@ -271,7 +280,7 @@ def invoke_qwen(executable, folder, gate):
         cli = f"python3 -m strategist --root {shlex.quote(str(folder.parent))}"
         prompt = (
             f"Прочитай AGENTS.md. Работай с кейсом {folder.name}. "
-            f"Начни с {cli} context {folder.name} --compact. "
+            f"Начни с {cli} context {folder.name} --evidence. "
             f"Выполни только этап {gate.stage}, используй материалы кейса и разрешённые источники. "
             f"Проверь и сохрани этап через CLI {cli} по актуальной ревизии. "
             "Закончи работу сразу после сохранения."

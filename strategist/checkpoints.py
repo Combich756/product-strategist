@@ -2,9 +2,11 @@
 
 import re
 from datetime import date
+from decimal import Decimal
 from fractions import Fraction
+from math import isfinite
 
-from .analysis import format_rate, rates, table_records
+from .analysis import format_rate, merged_refs, rates, table_records
 from .sources import TABLE_FORMATS, source_lines
 from .state import need
 from .timing import validate_analysis
@@ -79,6 +81,8 @@ def rate_checks(sources, claim, cache):
     for check in checks:
         check = object_(check, "rate_checks")
         strings(check, "source numerator denominator")
+        if "subtract" in check:
+            strings(check, "subtract")
         source = check["source"]
         label = f"{claim['id']} · {source}"
         citations = [ref for ref in claim["refs"] if ref["source"] == source]
@@ -92,9 +96,10 @@ def rate_checks(sources, claim, cache):
              f"{label}: ожидаемые числитель и знаменатель должны быть целыми числами.")
 
         numerator, denominator = check["numerator"], check["denominator"]
-        key = (source, tuple(group), numerator, denominator)
+        subtract = check.get("subtract")
+        key = (source, tuple(group), numerator, denominator, subtract)
         if key not in cache:
-            computed = rates(sources[source], list(group), numerator, denominator)
+            computed = rates(sources[source], list(group), numerator, denominator, subtract=subtract)
             cache[key] = {tuple(row["group"].values()): row for row in computed["groups"]}
         result = cache[key].get(tuple(group.values()))
         need(result is not None, f"{label}: группа {group} отсутствует в таблице.")
@@ -104,8 +109,9 @@ def rate_checks(sources, claim, cache):
         for row in result["refs"]:
             need(any(ref["start"] <= row["start"] and row["end"] <= ref["end"] for ref in citations),
                  f"{label}: строки расчёта {row['start']}–{row['end']} выходят за границы ссылок вывода.")
+        adjustment = {"subtract_column": subtract} if subtract is not None else {}
         verified.append({"source": source, "numerator_column": numerator, "denominator_column": denominator,
-                         **result})
+                         **adjustment, **result})
     return verified
 
 
@@ -145,6 +151,14 @@ def validate_claim_rate_text(claim, verified_rates):
              "Подставьте долю через {{rate:1}} с номером нужного расчёта.")
 
 
+def snapshot_rows(sources, source, cache):
+    key = ("cells", source)
+    if key not in cache:
+        header, rows = table_records(sources[source])
+        cache[key] = (header, {first: (last, row) for first, last, row in rows})
+    return cache[key]
+
+
 def cell_checks(sources, claim, cache):
     """Verify literal cell evidence; never infer a causal link from matching values."""
     checks = list_(claim.get("cell_checks", []), "cell_checks", 0)
@@ -158,11 +172,7 @@ def cell_checks(sources, claim, cache):
         line = check.get("line")
         need(type(line) is int and line > 1 and isinstance(check.get("expected"), str),
              "cell_checks: line — номер строки данных, expected — точное значение из снимка таблицы.")
-        key = ("cells", source)
-        if key not in cache:
-            header, rows = table_records(sources[source])
-            cache[key] = (header, {first: (last, row) for first, last, row in rows})
-        header, rows = cache[key]
+        header, rows = snapshot_rows(sources, source, cache)
         need(check["column"] in header and line in rows, f"{source}: ячейка отсутствует.")
         last, row = rows[line]
         actual = row[check["column"]]
@@ -180,11 +190,180 @@ def linked(value, field, claims, fact_only=False):
             need(claims[key]["type"] == "fact", f"{field}: {key} должен иметь тип fact.")
 
 
+def validate_metric_definitions(metrics):
+    for key, metric in indexed(metrics, "brief.metrics", "M", 0).items():
+        strings(metric, "label unit")
+        need(set(metric) <= {"id", "label", "unit", "formula", "threshold", "comparability"},
+             f"Для {key} в брифе задайте описание, формулу, порог и условия сопоставимости. "
+             "Результат укажите в исследовании.")
+        formula = object_(metric.get("formula"), f"{key}.formula")
+        if "column" in formula:
+            need(set(formula) == {"column"}, f"{key}.formula принимает одно поле column.")
+            strings(formula, "column")
+        else:
+            strings(formula, "numerator denominator")
+            need(set(formula) <= {"numerator", "denominator", "subtract"},
+                 f"{key}.formula принимает numerator, denominator и необязательное subtract.")
+            if "subtract" in formula:
+                strings(formula, "subtract")
+            need(len(set(formula.values())) == len(formula), f"Для {key} нужны разные столбцы формулы.")
+            need(metric["unit"] == "%", f"Для доли {key} укажите единицу %.")
+        if "threshold" in metric:
+            threshold = object_(metric["threshold"], f"{key}.threshold")
+            value = threshold.get("value")
+            need(set(threshold) == {"op", "value"} and threshold["op"] in (">=", "<=") and
+                 (type(value) is int or type(value) is float and isfinite(value)),
+                 f"Для {key} укажите порог с op >= или <= и конечным числом value.")
+        if "comparability" in metric:
+            required = object_(metric["comparability"], f"{key}.comparability")
+            need(required and all(column.strip() and isinstance(value, str) and value.strip()
+                                  for column, value in required.items()),
+                 f"{key}.comparability: укажите столбцы и их ожидаемые непустые строковые значения.")
+
+
+def metric_comparability(sources, source, ranges, required, cache):
+    header, rows = snapshot_rows(sources, source, cache)
+    issues = []
+    for column, expected in required.items():
+        condition = {"column": column, "expected": expected}
+        if column not in header:
+            issues.append({**condition, "kind": "missing_column"})
+            continue
+        missing = None
+        for ref in ranges:
+            actual = rows[ref["start"]][1][column]
+            if actual == expected:
+                continue
+            location = {"source": source, **ref}
+            if actual.strip():
+                issues.append({**condition, "kind": "mismatch", "actual": actual, "ref": location})
+                break
+            if missing is None:
+                missing = location
+        else:
+            if missing is not None:
+                issues.append({**condition, "kind": "missing_value", "ref": missing})
+    status = "compatible"
+    if issues:
+        status = "incompatible" if any(issue["kind"] == "mismatch" for issue in issues) else "unverified"
+    return {"status": status, "issues": issues}
+
+
+def measure_metric(sources, metric, claim, index, cache):
+    formula = metric["formula"]
+    scalar = "column" in formula
+    checks = cell_checks(sources, claim, cache) if scalar else rate_checks(sources, claim, cache)
+    key = metric["id"]
+    field = "cell_checks" if scalar else "rate_checks"
+    need(type(index) is int and 1 <= index <= len(checks),
+         f"Для {key} укажите номер проверки из {claim['id']}.{field}, начиная с 1.")
+    check = checks[index - 1]
+    source = check["source"]
+    if scalar:
+        actual = check["actual"].strip().replace(",", ".")
+        need(formula == {"column": check["column"]}, f"Ячейка для {key} расходится с формулой в брифе.")
+        need(re.fullmatch(r"[+-]?[0-9]+(?:\.[0-9]+)?", actual),
+             f"Для {key} нужна ячейка с числом в единицах метрики.")
+        value = Fraction(actual)
+        shown = f"{actual}{' ' if metric['unit'] != '%' else ''}{metric['unit']}"
+        ranges = [{"start": check["line"], "end": check["end"]}]
+    else:
+        columns = {name: check[f"{name}_column"] for name in ("numerator", "denominator", "subtract")
+                   if f"{name}_column" in check}
+        need(formula == columns, f"Пересчёт для {key} расходится с формулой в брифе.")
+        denominator = check["denominator"]
+        value = Fraction(100 * check["numerator"], denominator) if denominator else None
+        shown = format_rate(check)
+        ranges = check["refs"]
+
+    refs = merged_refs(source, ((row["start"], row["end"]) for row in ranges))
+    result = {**metric, "value": shown, "claim": claim["id"], "refs": refs}
+    if "comparability" in metric:
+        comparison = metric_comparability(sources, source, ranges, metric["comparability"], cache)
+        result["comparability_check"] = comparison
+        if comparison["status"] != "compatible":
+            if scalar:
+                result["value"] = actual
+            return result
+    if value is not None and "threshold" in metric:
+        threshold = metric["threshold"]
+        target = Fraction(str(threshold["value"]))
+        excess = value - target if threshold["op"] == "<=" else target - value
+        result["passes"] = excess <= 0
+        if excess > 0:
+            delta = Decimal(excess.numerator) / Decimal(excess.denominator)
+            unit = "п. п." if metric["unit"] == "%" else metric["unit"]
+            result["deviation"] = f"{delta:.6g} {unit}"
+    return result
+
+
+def decision_metrics(sources, brief, research, cache):
+    definitions = brief.get("metrics", [])
+    if research is None or not definitions:
+        return definitions
+
+    bindings = object_(research.get("metrics", {}), "research.metrics")
+    expected = {metric["id"] for metric in definitions}
+    missing = expected - bindings.keys()
+    unexpected = bindings.keys() - expected
+    need(not missing, f"Заполните метрики из брифа в research.metrics: {', '.join(sorted(missing))}. "
+         "Укажите проверенный расчёт или gap с причиной.")
+    need(not unexpected, f"Метрики вне брифа в research.metrics: {', '.join(sorted(unexpected))}.")
+    claims = {claim["id"]: claim for claim in research["claims"]}
+    results = []
+    for metric in definitions:
+        key = metric["id"]
+        binding = object_(bindings[key], f"research.metrics.{key}")
+        if set(binding) == {"gap"}:
+            strings(binding, "gap")
+            results.append({**metric, **binding})
+        else:
+            need(set(binding) == {"claim", "check"}, f"Для {key} укажите claim и check или причину gap.")
+            strings(binding, "claim")
+            claim = claims.get(binding["claim"])
+            need(claim is not None and claim["type"] == "fact",
+                 f"Для {key} выберите существующий факт с проверкой источника.")
+            results.append(measure_metric(sources, metric, claim, binding["check"], cache))
+    return results
+
+
+def research_questions(brief):
+    return {f"Q{number}": question for number, question in enumerate(brief["questions"], 1)}
+
+
+def validate_question_results(brief, research, claims):
+    questions = research_questions(brief)
+    results = object_(research.get("question_results", {}), "research.question_results")
+    missing = questions.keys() - results.keys()
+    unexpected = results.keys() - questions.keys()
+    need(not missing, f"research.question_results: заполните вопросы {', '.join(sorted(missing))}. "
+         "Укажите факты или пробел, влияние на выбор и следующую проверку.")
+    need(not unexpected, f"research.question_results: неизвестные вопросы {', '.join(sorted(unexpected))}.")
+    for key, result in results.items():
+        field = f"research.question_results.{key}"
+        result = object_(result, field)
+        allowed = {"claims", "decision_impact"}
+        fields = ["decision_impact"]
+        if "gap" in result:
+            allowed.update(("gap", "next_check"))
+            fields.extend(("gap", "next_check"))
+        need(result.keys() <= allowed, f"{field}: укажите claims или gap с next_check и decision_impact.")
+        for name in fields:
+            value = result.get(name)
+            need(isinstance(value, str) and value.strip(), f"{field}.{name}: ожидается непустой текст.")
+        if "gap" not in result or "claims" in result:
+            linked(result.get("claims"), f"{field}.claims", claims, fact_only=True)
+
+
 def validate_brief(state, data):
     strings(data, "question goal audience constraints available_data")
     texts(data.get("questions"), "questions")
+    if "require_question_results" in data:
+        need(type(data["require_question_results"]) is bool, "require_question_results: ожидается true или false.")
     if "analysis" in data:
         validate_analysis(data["analysis"])
+    if "metrics" in data:
+        validate_metric_definitions(data["metrics"])
 
 
 def validate_research(state, data):
@@ -216,6 +395,11 @@ def validate_research(state, data):
                  f"{claim['id']}: числовой вывод со ссылкой на таблицу требует rate_checks или cell_checks. "
                  "Получите готовые проверки и refs через rates --evidence или cells.")
     need(fact_found, "Для перехода нужен хотя бы один факт с источником.")
+    brief = state["checkpoints"]["brief"]
+    metrics = decision_metrics(state["sources"], brief, data, cache)
+    if brief.get("require_question_results"):
+        validate_question_results(brief, data, claims)
+    return metrics
 
 
 def validate_options(state, data):

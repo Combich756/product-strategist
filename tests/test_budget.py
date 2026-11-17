@@ -100,9 +100,14 @@ class BudgetTests(unittest.TestCase):
         evidence = self.call("rates", "S001", "--numerator", "yes", "--denominator", "all", "--evidence")
         brief = dict.fromkeys("question goal audience constraints available_data".split(), "Пилот")
         brief["questions"] = ["Как оценить эффект?"]
+        brief["metrics"] = [{
+            "id": "M1", "label": "Активации", "unit": "%", "formula": {"numerator": "yes", "denominator": "all"},
+            "threshold": {"op": ">=", "value": 60},
+        }]
         recovery.save_draft(self.folder, "brief", brief)
         recovery.save_draft(self.folder, "research", {
             "comparison": "Доступны наблюдения пилота", "gaps": ["Эффект неизвестен"],
+            "metrics": {"M1": {"claim": "C1", "check": 1}},
             "claims": [{"id": "C1", "text": "Доля активаций — {{rate:1}}.", "type": "fact", "scope": "demo",
                         "limits": "Учебный пример", "refs": evidence["refs"], "rate_checks": evidence["rate_checks"]}],
         })
@@ -171,6 +176,8 @@ class BudgetTests(unittest.TestCase):
             self.assertNotIn("Подробности исходника", body.decode())
             context = json.loads(payload["messages"][1]["content"])
             self.assertEqual(context["saved"]["research"]["claims"][0]["text"], "Доля активаций — 48/80 = 60%.")
+            self.assertEqual(context["decision_metrics"][0]["value"], "48/80 = 60%")
+            self.assertTrue(context["decision_metrics"][0]["passes"])
             seen.append(list(context["saved"]))
             return self.compact_reply(strategy if "options" in context["saved"] else options)
 

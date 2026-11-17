@@ -66,6 +66,26 @@ class CaseTests(unittest.TestCase):
         self.assertEqual(self.call("status")["revision"], revision)
         self.assertEqual(self.call("context")["next"], "research")
 
+    def test_init_reads_request_file_contents(self):
+        path = self.root / "запрос.md"
+        request = "Почему изменилась активация?\nСравни две когорты.\n"
+        path.write_text(request, encoding="utf-8-sig")
+        self.call("init", "--request-file", str(path), case_id="from-file")
+        self.assertEqual(self.call("context", "--compact", case_id="from-file")["request"], request)
+
+    def test_log_fractional_seconds_and_reject_nonfinite_durations(self):
+        self.call("log", "--kind", "tool", "--label", "Пересчёт", "--seconds", "2.416")
+        self.call("log", "--kind", "tool", "--label", "Проверка", "--seconds", "1.25")
+        measured = self.call("cost")
+        self.assertEqual(measured["entries"][0]["seconds"], 2.416)
+        self.assertAlmostEqual(measured["logged_seconds"]["tool"], 3.666)
+        before = self.call("status")
+        for bad in ("-0.25", "nan", "inf"):
+            with self.subTest(seconds=bad):
+                self.call("log", "--kind", "tool", "--label", "Замер", f"--seconds={bad}",
+                          error="конечным и неотрицательным")
+        self.assertEqual(self.call("status"), before)
+
     def test_followup_recovers_approval_archived_by_older_version(self):
         folder = self.root / "test"
         database = folder / "state.sqlite3"
@@ -105,11 +125,13 @@ class CaseTests(unittest.TestCase):
         reused = self.local("a.md", "Первая версия")
         self.assertTrue(reused["reused"])
         self.assertEqual(self.call("status")["next"], "options")
-        self.local("a.md", "Исправлено")
+        repaired = self.local("a.md", "Исправлено")["source"]
+        latest = self.local("a.md", "Повторное исправление")["source"]
         self.call("revoke", second, "--reason", "отозван")
         status = self.call("status")
         self.assertEqual(status["next"], "research")
         self.assertEqual(status["impact"]["affected_claims"], ["C1", "C2"])
+        self.assertIn({"source": latest, "replaced": repaired}, status["impact"]["source_changes"])
         self.assertEqual(len(self.call("history")), 1)
         self.assertEqual(self.call("view", first)["lines"][0]["text"], "Первая версия")
         self.save("research", self.research(first), error="нужен активный источник")
