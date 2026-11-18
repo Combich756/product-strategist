@@ -1,0 +1,24 @@
+{
+  "poster": {
+    "standard_first_pass": "72/100",
+    "offer_first_pass": "80/100",
+    "offer_percent": 80.0,
+    "delta_percentage_points": 8.0,
+    "opened_first_pass": "50/55",
+    "opened_percent": 90.9091,
+    "minutes_per_100": 32,
+    "variable_saving_rub_per_100": 400.0,
+    "eligible_to_roll_out": true
+  },
+  "booklet": {
+    "standard_first_pass": "69/100",
+    "offer_first_pass": "70/100",
+    "offer_percent": 70.0,
+    "delta_percentage_points": 1.0,
+    "opened_first_pass": "56/62",
+    "opened_percent": 90.3226,
+    "minutes_per_100": 46,
+    "variable_saving_rub_per_100": -370.0,
+    "eligible_to_roll_out": false
+  }
+}

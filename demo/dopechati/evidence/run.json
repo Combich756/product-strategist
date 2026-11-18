@@ -1,0 +1,72 @@
+{
+  "git": "716b9027a620ed878fa1a7bd66c965e275c8be8f",
+  "case": "dopechati",
+  "started_utc": "2026-11-18T21:34:21.899076+00:00",
+  "owner_report_call_utc": "2026-11-18T21:44:16.719+00:00",
+  "elapsed_to_owner_report_seconds": 594.96,
+  "cli_calls": 77,
+  "cli_calls_by_name": {
+    "init": 2,
+    "ingest": 6,
+    "--help": 2,
+    "find": 5,
+    "view": 11,
+    "cells": 4,
+    "log": 3,
+    "rates": 7,
+    "pause": 2,
+    "context": 2,
+    "report": 6,
+    "save": 6,
+    "check": 5,
+    "status": 5,
+    "recover": 1,
+    "resume": 2,
+    "claim": 1,
+    "review-strategy": 4,
+    "journal": 1,
+    "cost": 2
+  },
+  "cli_seconds_sum": 11.02,
+  "nonzero_cli": [],
+  "saved_stages": [
+    {
+      "stage": "brief",
+      "revision": 7,
+      "call": "1795037799825606665"
+    },
+    {
+      "stage": "research",
+      "revision": 8,
+      "call": "1795037951814745956"
+    },
+    {
+      "stage": "options",
+      "revision": 11,
+      "call": "1795038080542668935"
+    },
+    {
+      "stage": "strategy",
+      "revision": 12,
+      "call": "1795038180486066550"
+    }
+  ],
+  "independent_reviews": [
+    {
+      "number": 1,
+      "version": "a36baee1e8bc4353e1a357dc782ae052c6f196763d8dc36f5403b946dbdb9995",
+      "dispatches": 1,
+      "first_issue_call_ns": 1795038189710076995,
+      "packet_utf8_bytes": 50573,
+      "outcome": "clear",
+      "handoff_to_verdict_seconds": 46.44,
+      "findings": [],
+      "gate_before_exit_code": 2
+    }
+  ],
+  "work_usage": {
+    "tokens": null,
+    "currency_cost": null,
+    "reason": "Статистика платформы для отдельных сеансов не предоставлена."
+  }
+}

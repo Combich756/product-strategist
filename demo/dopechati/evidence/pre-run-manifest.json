@@ -1,0 +1,13 @@
+{
+  "start_utc": "2026-11-18T21:34:21.899076+00:00",
+  "monotonic": 2025.972101662,
+  "rubric_sha256": "f122046541cba7792323c66d776671b657ae9cfc3d6208fda598c5874e7bd1bb",
+  "input_sha256": {
+    "materials/experiment.csv": "24e090c83ecf6d566140a5d73fddf43ae2a409af7e0a10a6c02bbc04addd8a33",
+    "materials/pilot.md": "f397e44ee3e5c257169fa91b7ca0b27545d1bf44749a2c2d3ffa7f62f3cb4c0d",
+    "materials/product.md": "6d2301160cfe33e04a526e444c4670fe89a3a865a01dfb1892e1a58542cfd83a",
+    "materials/support.csv": "33e3ca0c7a5711545e5dd40e01645ac90b4f4bc533f9431344da7032a42e5a36",
+    "request.md": "e671c9fa1e672f2b950bb8eb8ef2ed2e9f6e02cb6d923a368a79c48ac4f1c353"
+  },
+  "git": "716b9027a620ed878fa1a7bd66c965e275c8be8f"
+}

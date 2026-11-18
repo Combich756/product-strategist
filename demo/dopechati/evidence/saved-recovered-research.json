@@ -1,0 +1,20 @@
+{
+  "case": "dopechati",
+  "revision": 8,
+  "paused": false,
+  "next": "options",
+  "checkpoints": [
+    "brief",
+    "research"
+  ],
+  "active_sources": [
+    "S002",
+    "S003",
+    "S004",
+    "S005"
+  ],
+  "pending_source_reviews": [],
+  "impact": null,
+  "active_decision": null,
+  "warnings": []
+}

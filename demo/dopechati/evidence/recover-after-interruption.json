@@ -1,0 +1,84 @@
+{
+  "case": "dopechati",
+  "revision": 7,
+  "paused": false,
+  "next": "research",
+  "checkpoints": [
+    "brief"
+  ],
+  "active_sources": [
+    "S002",
+    "S003",
+    "S004",
+    "S005"
+  ],
+  "pending_source_reviews": [],
+  "impact": null,
+  "active_decision": null,
+  "drafts": [
+    {
+      "file": "cases/dopechati/drafts/brief.json",
+      "stage": "brief",
+      "same_as_checkpoint": true,
+      "valid": true,
+      "revision": 7,
+      "paused": false,
+      "can_save": false,
+      "warnings": [],
+      "validated": [
+        "structure",
+        "source_ranges",
+        "declared_calculations"
+      ],
+      "manual_review_required": "Смысл ссылок, причинность, экономика и достаточность доказательств требуют проверки.",
+      "human_choice_required": false
+    },
+    {
+      "file": "cases/dopechati/drafts/research.json",
+      "stage": "research",
+      "same_as_checkpoint": false,
+      "valid": true,
+      "revision": 7,
+      "paused": false,
+      "can_save": true,
+      "warnings": [],
+      "validated": [
+        "structure",
+        "source_ranges",
+        "declared_calculations",
+        "declared_metric_comparability",
+        "question_coverage"
+      ],
+      "manual_review_required": "Смысл ссылок, причинность, экономика и достаточность доказательств требуют проверки.",
+      "human_choice_required": false,
+      "metric_comparability": {
+        "M1": {
+          "status": "compatible",
+          "issues": []
+        },
+        "M2": {
+          "status": "compatible",
+          "issues": []
+        },
+        "M3": {
+          "status": "compatible",
+          "issues": []
+        },
+        "M4": {
+          "status": "compatible",
+          "issues": []
+        },
+        "M5": {
+          "status": "compatible",
+          "issues": []
+        },
+        "M6": {
+          "status": "compatible",
+          "issues": []
+        }
+      },
+      "suggested_command": "python3 -m strategist --root cases save dopechati research cases/dopechati/drafts/research.json --expect 7"
+    }
+  ],
+  "guidance": "Сверьте черновик и основания. Сохранение этапа не утверждает решение. При паузе сначала resume; после любой записи обновите ревизию. decide выполняется только после явного выбора человека."
+}

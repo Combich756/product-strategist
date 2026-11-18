@@ -1,0 +1,33 @@
+{
+  "case": "dopechati",
+  "revision": 15,
+  "paused": false,
+  "next": "decision",
+  "checkpoints": [
+    "brief",
+    "research",
+    "options",
+    "strategy"
+  ],
+  "active_sources": [
+    "S002",
+    "S003",
+    "S004",
+    "S005"
+  ],
+  "pending_source_reviews": [],
+  "impact": null,
+  "active_decision": null,
+  "strategy_review": {
+    "version": "a36baee1e8bc4353e1a357dc782ae052c6f196763d8dc36f5403b946dbdb9995",
+    "status": "clear",
+    "ticket": "b3d4dc7b1c7b49db9290512071e73a62",
+    "result": {
+      "case": "dopechati",
+      "version": "a36baee1e8bc4353e1a357dc782ae052c6f196763d8dc36f5403b946dbdb9995",
+      "ticket": "b3d4dc7b1c7b49db9290512071e73a62",
+      "verdict": "clear",
+      "findings": []
+    }
+  }
+}
