@@ -1,0 +1,14 @@
+{
+  "interruption": "Первый сеанс Codex Work сообщил об исчерпании лимита генерации до сохранения этапа research.",
+  "completed_at_interruption": [
+    "brief"
+  ],
+  "interrupted_revision": 7,
+  "recovered_draft": "cases/dopechati/drafts/research.json",
+  "accepted_unchanged_sha256": "a5ecbbff22ba53c3d3b8844ad686aadb9975d48924306f1ba980b397c1ce167c",
+  "recovered_checkpoint_revision": 8,
+  "pause_revision": 9,
+  "pause_next": "options",
+  "resume_handoff": "Новый сеанс Codex получил ID кейса, доступ к проекту и просьбу продолжить по context --evidence. Переписка первого сеанса и эталон ему не переданы.",
+  "owner_approval_given": false
+}

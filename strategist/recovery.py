@@ -9,26 +9,90 @@ from pathlib import Path
 from . import budget, checkpoints, privacy, state
 
 
+def review_context(data):
+    archive = state.source_review_archive(data)
+    state.need(archive is not None and "research" in archive["checkpoints"] and state.next_stage(data) == "research",
+               "Для --review нужен открытый пересмотр исследования после изменения материалов.")
+    previous = archive["checkpoints"]
+    research = previous["research"]
+    brief = data["checkpoints"]["brief"]
+    same_brief = brief == state.archived_brief(data, archive)
+    impact = data["impact"]
+    affected = set(impact["affected_claims"])
+    active = {key for key, source in data["sources"].items()
+              if source["status"] == "active" and source.get("review_status") != "pending"}
+    facts = [claim for claim in research["claims"]
+             if same_brief and claim["type"] == "fact" and claim["id"] not in affected
+             and claim["refs"] and all(ref["source"] in active for ref in claim["refs"])]
+    fact_ids = {claim["id"] for claim in facts}
+    previous_metrics = research.get("metrics", {}) if brief.get("metrics") else {}
+    previous_questions = research.get("question_results", {}) if brief.get("require_question_results") else {}
+    affected_metrics = set(impact.get("affected_metrics", []))
+    affected_questions = set(impact.get("affected_questions", []))
+    draft = {"comparison": "", "gaps": [], "claims": facts}
+    if brief.get("metrics"):
+        draft["metrics"] = {
+            key: binding for key, binding in previous_metrics.items()
+            if key not in affected_metrics and binding.get("claim") in fact_ids
+        }
+    if brief.get("require_question_results"):
+        draft["question_results"] = {
+            key: answer for key, answer in previous_questions.items()
+            if key not in affected_questions and "gap" not in answer
+            and answer.get("claims") and set(answer["claims"]) <= fact_ids
+        }
+    strategy = previous.get("strategy", {})
+    return {
+        "baseline_revision": archive["revision"],
+        "draft": draft,
+        "previous": {
+            "comparison": research["comparison"],
+            "gaps": research["gaps"],
+            "claims": [{key: claim[key] for key in ("id", "type", "text", "limits", "refs")}
+                       for claim in research["claims"] if claim["id"] not in fact_ids],
+            "metrics": {key: binding for key, binding in previous_metrics.items()
+                        if key not in draft.get("metrics", {})},
+            "question_results": {key: answer for key, answer in previous_questions.items()
+                                 if key not in draft.get("question_results", {})},
+            "recommendation": {key: strategy[key] for key in ("option", "rationale", "revisit")} if strategy else None,
+        },
+    }
+
+
 def check_draft(data, stage, artifact):
     artifact = checkpoints.object_(artifact, stage)
     privacy.require_clean(state.dump(artifact), "Черновик этапа")
     prerequisites = state.STAGES[:state.STAGES.index(stage)]
     state.need(all(key in data["checkpoints"] for key in prerequisites),
                "Не сохранены предыдущие этапы; сначала прочитайте context.")
-    checkpoints.VALIDATORS[stage](data, artifact)
+    metrics = checkpoints.VALIDATORS[stage](data, artifact)
     assumptions = artifact.get("assumptions", [])
     state.need(isinstance(assumptions, list) and all(isinstance(x, str) and x.strip() for x in assumptions),
                "assumptions: ожидается список непустых строк.")
     warnings = []
     if stage in {"options", "strategy"} and not assumptions:
         warnings.append("Не указаны assumptions: проверьте основания оценок труда, денежных эффектов и порогов.")
+    validated = ["structure", "source_ranges", "declared_calculations"]
+    comparability = {}
+    if stage == "research":
+        comparability = {metric["id"]: metric["comparability_check"] for metric in metrics
+                         if "comparability_check" in metric}
+        blocked = [metric["id"] for metric in metrics if "threshold" in metric
+                   and metric["id"] in comparability and comparability[metric["id"]]["status"] != "compatible"]
+        if blocked:
+            warnings.append(f"Порог не оценён для {', '.join(blocked)}. Проверьте условия сопоставимости.")
+        if comparability:
+            validated.append("declared_metric_comparability")
+    if stage == "research" and data["checkpoints"]["brief"].get("require_question_results"):
+        validated.append("question_coverage")
     return {
         "valid": True, "stage": stage, "revision": data["revision"], "paused": data["paused"],
         "can_save": not data["paused"] and state.next_stage(data) == stage and stage != "decision",
         "warnings": warnings,
-        "validated": ["structure", "source_ranges", "declared_calculations"],
+        "validated": validated,
         "manual_review_required": "Смысл ссылок, причинность, экономика и достаточность доказательств требуют проверки.",
         "human_choice_required": stage == "decision",
+        **({"metric_comparability": comparability} if comparability else {}),
     }
 
 
@@ -87,8 +151,18 @@ def recover(folder, data):
         except (state.UserError, OSError, ValueError, OverflowError, KeyError, RecursionError, csv.Error) as error:
             item.update(valid=False, error=str(error))
         drafts.append(item)
+    summary = state.summary(data)
+    review = summary.get("strategy_review")
+    if review and review["status"] == "in_progress":
+        receipt = folder / "reviews" / (review["ticket"] + ".json")
+        if receipt.is_file() and not receipt.is_symlink() and not receipt.parent.is_symlink():
+            review["result_file"] = str(receipt)
+            review["suggested_command"] = shlex.join([
+                "python3", "-m", "strategist", "--root", str(folder.parent),
+                "review-strategy", data["case"], "--record", str(receipt),
+            ])
     return {
-        **state.summary(data), "drafts": drafts,
+        **summary, "drafts": drafts,
         "guidance": "Сверьте черновик и основания. Сохранение этапа не утверждает решение. "
                     "При паузе сначала resume; после любой записи обновите ревизию. "
                     "decide выполняется только после явного выбора человека.",

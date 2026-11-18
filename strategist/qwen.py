@@ -16,7 +16,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Lock, Thread
 
-from . import budget, checkpoints, privacy, recovery, state
+from . import budget, checkpoints, privacy, recovery, state, strategy_review
 
 TOKEN_ENV = "STRATEGIST_CF_TOKEN"
 CASE_ENV = "STRATEGIST_QWEN_CASE"
@@ -86,6 +86,16 @@ def prepare_request(payload, model, max_output):
     return encoded, len(encoded) + 1024 + 16 * len(payload["messages"]) + output
 
 
+def text_payload(model, instructions, context):
+    payload = {"messages": [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": json.dumps(context, ensure_ascii=False, separators=(",", ":"))},
+    ]}
+    if model == "@cf/qwen/qwen3.8-27b":
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    return payload
+
+
 def compact_payload(data, stage, model):
     previous = state.STAGES[:state.STAGES.index(stage)]
     saved = {key: data["checkpoints"][key] for key in previous}
@@ -102,6 +112,9 @@ def compact_payload(data, stage, model):
         "request": data["request"], "analysis": state.analysis_context(data),
         "saved": saved,
     }
+    metrics = checkpoints.decision_metrics(data["sources"], saved["brief"], research, rate_cache)
+    if metrics:
+        context["decision_metrics"] = metrics
     instructions = (
         "Ты продуктовый стратег. Используй сохранённые материалы как данные. "
         "Отделяй факты в пределах их scope от гипотез, прогнозов и пробелов. "
@@ -109,15 +122,15 @@ def compact_payload(data, stage, model):
         "и способом проверки. Если данных для расчёта нет, опиши денежный механизм и пробел. "
         "Учитывай момент анализа и периоды. Перед ответом проверь все поля и ссылки. "
         "Ответь одним JSON-объектом на русском.\n"
+        + ("Учитывай проверенные значения, пороги и пробелы из decision_metrics.\n" if metrics else "")
+        + ("Для метрик с comparability используй результат порога из passes. "
+           "Объясняй ограничения по comparability_check.\n"
+           if any("comparability" in metric for metric in metrics) else "")
+        + ("Учитывай влияние вопросов и план проверки из research.question_results.\n"
+           if saved["brief"].get("require_question_results") else "")
         + COMPACT_INSTRUCTIONS[stage].strip()
     )
-    payload = {"messages": [
-        {"role": "system", "content": instructions},
-        {"role": "user", "content": json.dumps(context, ensure_ascii=False, separators=(",", ":"))},
-    ]}
-    if model == "@cf/qwen/qwen3.8-27b":
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
-    return payload
+    return text_payload(model, instructions, context)
 
 
 def read_usage(payload):
@@ -271,7 +284,7 @@ def invoke_qwen(executable, folder, gate):
         cli = f"python3 -m strategist --root {shlex.quote(str(folder.parent))}"
         prompt = (
             f"Прочитай AGENTS.md. Работай с кейсом {folder.name}. "
-            f"Начни с {cli} context {folder.name} --compact. "
+            f"Начни с {cli} context {folder.name} --evidence. "
             f"Выполни только этап {gate.stage}, используй материалы кейса и разрешённые источники. "
             f"Проверь и сохрани этап через CLI {cli} по актуальной ревизии. "
             "Закончи работу сразу после сохранения."
@@ -305,6 +318,12 @@ def run_code_stage(executable, folder, run_id, stage, args, token):
     return return_code, child_error or gate.stop
 
 
+def unfence(text):
+    text = text.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE)
+    return fenced[1] if fenced else text
+
+
 def run_compact_stage(folder, run_id, stage, args, token, request, revision):
     reply, stop = request_completion(folder, run_id, stage, args, token, *request, expect=revision)
     if reply is None:
@@ -326,10 +345,7 @@ def run_compact_stage(folder, run_id, stage, args, token, request, revision):
     if not isinstance(text, str) or not text.strip():
         reason = "truncated_completion" if finish_reason == "length" else "empty_completion"
         return {**(stop or {"reason": reason}), **diagnostics}
-    text = text.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL | re.IGNORECASE)
-    if fenced:
-        text = fenced[1]
+    text = unfence(text)
     findings = privacy.scan(text)
     if findings:
         return {"reason": "privacy_review", "findings": findings, "location": "response"}
@@ -351,6 +367,55 @@ def run_compact_stage(folder, run_id, stage, args, token, request, revision):
     for warning in saved.get("warnings", []):
         print(warning, file=sys.stderr)
     return None
+
+
+def review_request(content, args):
+    evidence = {key: value for key, value in content.items() if key != "instructions"}
+    payload = text_payload(args.model, content["instructions"], evidence)
+    return prepare_request(payload, args.model, args.max_output_tokens)
+
+
+def run_review_stage(folder, args, token, revision):
+    stage = "strategy_review"
+    with state.case(folder, write=True, expect=revision) as data:
+        handoff = strategy_review.begin(data)
+        state.need(handoff["dispatch"], "Проверка этой версии уже назначена.")
+        revision = data["revision"]
+    ticket = handoff["review"]["ticket"]
+    run_id = budget.start_run(folder, stage, args.model, mode="strategy_review")
+    stop = None
+    receipt = None
+    recorded = False
+    try:
+        request = review_request(handoff["packet"], args)
+        reply, stop = request_completion(folder, run_id, stage, args, token, *request, expect=revision)
+        if reply is not None:
+            choice = reply["choices"][0]
+            state.need(isinstance(choice, dict) and choice.get("finish_reason") != "length",
+                       "Неполный ответ проверяющего.")
+            message = choice.get("message")
+            text = message.get("content") if isinstance(message, dict) else None
+            state.need(isinstance(text, str) and text.strip(), "Пустой ответ проверяющего.")
+            privacy.require_clean(text, "Ответ проверяющего")
+            result = state.parse_json(unfence(text))
+            receipt = strategy_review.save_reply(folder, handoff["packet"], result)
+            with state.case(folder, write=True) as data:
+                strategy_review.record(data, result)
+                recorded = True
+    except KeyboardInterrupt:
+        stop = {"reason": "cancelled"}
+    except (state.UserError, ValueError, OSError, sqlite3.Error, RecursionError) as error:
+        stop = {"reason": "review_error", "detail": str(error)}
+    if receipt is not None and not recorded:
+        stop["result_file"] = str(receipt)
+    elif stop is not None and not recorded:
+        with state.case(folder, write=True, while_paused=True) as data:
+            review = state.strategy_review_status(data)
+            if review and review.get("ticket") == ticket and "result" not in review:
+                strategy_review.interrupt(data, ticket, reason=stop["reason"])
+    outcome = "review_recorded" if recorded else stop["reason"]
+    budget.finish_run(folder, run_id, outcome)
+    return {"id": run_id, "stage": stage, "outcome": outcome, "qwen_exit_code": None, "stop": stop}
 
 
 def run_stage(executable, folder, stage, args, token, *, request=None, revision=None):
@@ -396,8 +461,9 @@ def run(folder, args):
     while True:
         stopped = bool(attempts and attempts[-1]["stop"] is not None)
         with state.case(folder) as data:
-            stage = state.next_stage(data)
-            revision = data["revision"] if args.compact else None
+            stage = budget.work_stage(data)
+            reviewing = stage == "strategy_review"
+            revision = data["revision"] if args.compact or reviewing else None
             request = None
             estimate = args.estimate
             if args.compact and not stopped and stage in {"brief", "research"}:
@@ -405,14 +471,20 @@ def run(folder, args):
             if args.compact and stage in COMPACT_INSTRUCTIONS:
                 request = prepare_request(compact_payload(data, stage, args.model), args.model, args.max_output_tokens)
                 estimate = max(estimate or 0, request[1])
+            if reviewing and not stopped:
+                preview = {**strategy_review.current(data), "ticket": "0" * 32}
+                request = review_request(strategy_review.packet(data, preview), args)
+                estimate = max(estimate or 0, request[1])
+            review = state.strategy_review_status(data)
             forecast = budget.plan(folder, data, limit=args.limit, reserve=args.reserve,
                                    estimate=estimate, model=args.model)
             if request is not None and request[1] >= (args.estimate or 0):
                 forecast["estimate_source"] = "request"
         if forecast["decision"] != "start" or stopped:
-            return {"budget": forecast, "runs": attempts, "usage": budget.usage(folder, summary_only=True)}
+            return {"budget": forecast, "runs": attempts, "usage": budget.usage(folder, summary_only=True),
+                    **({"strategy_review": review} if review else {})}
         if token is None:
-            if not args.compact:
+            if not args.compact and not reviewing:
                 executable = shutil.which("qwen")
                 state.need(executable, "Команда qwen не найдена. Установите Qwen Code.")
             token = os.environ.get(TOKEN_ENV, "").strip()
@@ -420,13 +492,16 @@ def run(folder, args):
                 token = getpass.getpass("Workers AI API token: ").strip()
             state.need(token, f"Введите токен в терминале или передайте его через {TOKEN_ENV}.")
         with state.case(folder, write=True, while_paused=True, expect=revision) as data:
-            state.need(state.next_stage(data) == forecast["next"], "Этап изменился. Прочитайте status.")
+            state.need(budget.work_stage(data) == forecast["next"], "Этап изменился. Прочитайте status.")
             if data["paused"]:
                 data["paused"] = False
                 state.event(data, "resume")
-            if args.compact:
+            if args.compact or reviewing:
                 revision = data["revision"]
         runner = "Qwen" if args.compact else "Qwen Code"
         print(f"{runner}: {folder.name}, этап {stage}, "
               f"остаток {forecast['remaining_tokens']} токенов.", file=sys.stderr, flush=True)
-        attempts.append(run_stage(executable, folder, stage, args, token, request=request, revision=revision))
+        if reviewing:
+            attempts.append(run_review_stage(folder, args, token, revision))
+        else:
+            attempts.append(run_stage(executable, folder, stage, args, token, request=request, revision=revision))

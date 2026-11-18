@@ -1,0 +1,92 @@
+[
+  {
+    "id": "M1",
+    "measure": "poster.offer.first_pass",
+    "value": "80/100 = 80%",
+    "threshold": {
+      "op": ">=",
+      "value": 75
+    },
+    "passes": true,
+    "ref": {
+      "source": "S003",
+      "start": 3,
+      "end": 3
+    },
+    "matches_csv": true
+  },
+  {
+    "id": "M2",
+    "measure": "poster.offer.minutes",
+    "value": "32 мин на 100 назначенных заказов",
+    "threshold": {
+      "op": "<=",
+      "value": 35
+    },
+    "passes": true,
+    "ref": {
+      "source": "S004",
+      "start": 2,
+      "end": 2
+    },
+    "matches_csv": true
+  },
+  {
+    "id": "M3",
+    "measure": "booklet.offer.first_pass",
+    "value": "70/100 = 70%",
+    "threshold": {
+      "op": ">=",
+      "value": 75
+    },
+    "passes": false,
+    "ref": {
+      "source": "S003",
+      "start": 5,
+      "end": 5
+    },
+    "matches_csv": true
+  },
+  {
+    "id": "M4",
+    "measure": "booklet.offer.minutes",
+    "value": "46 мин на 100 назначенных заказов",
+    "threshold": {
+      "op": "<=",
+      "value": 35
+    },
+    "passes": false,
+    "ref": {
+      "source": "S004",
+      "start": 3,
+      "end": 3
+    },
+    "matches_csv": true
+  },
+  {
+    "id": "M5",
+    "measure": "poster.standard.first_pass",
+    "value": "72/100 = 72%",
+    "threshold": null,
+    "passes": null,
+    "ref": {
+      "source": "S003",
+      "start": 2,
+      "end": 2
+    },
+    "matches_csv": true
+  },
+  {
+    "id": "M6",
+    "measure": "booklet.standard.first_pass",
+    "value": "69/100 = 69%",
+    "threshold": null,
+    "passes": null,
+    "ref": {
+      "source": "S003",
+      "start": 4,
+      "end": 4
+    },
+    "matches_csv": true
+  }
+]

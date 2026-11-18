@@ -1,0 +1,20 @@
+{
+  "measurement_status": "logged_only",
+  "known_logged_cost": {},
+  "logged_seconds": {
+    "model": 0,
+    "tool": 0,
+    "human": 0
+  },
+  "log_entries_without_cost": 1,
+  "logged_tokens": {
+    "input": null,
+    "output": null
+  },
+  "model_entries_without_token_counts": {
+    "input": 1,
+    "output": 1
+  },
+  "successful_ingest_ms": 6,
+  "note": "Поля logged_* учитывают записи log. Фактический расход qwen-run показан отдельно в qwen_usage. Ноль записей не означает нулевую стоимость. Интервалы между сохранениями не измеряют время модели."
+}

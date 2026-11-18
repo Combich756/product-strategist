@@ -1,0 +1,9 @@
+{
+  "version": "a36baee1e8bc4353e1a357dc782ae052c6f196763d8dc36f5403b946dbdb9995",
+  "case_status": "pending",
+  "command": "report dopechati --for-owner",
+  "returncode": 2,
+  "stdout_bytes": 0,
+  "stderr": "{\n  \"error\": \"Рекомендация ещё не готова к показу (pending). Сверьте результат через review-strategy.\"\n}\n",
+  "snapshot_call": "1795038180486066550"
+}

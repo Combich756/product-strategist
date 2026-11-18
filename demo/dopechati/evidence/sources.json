@@ -1,0 +1,86 @@
+{
+  "S001": {
+    "origin": "materials/pilot.md",
+    "format": "md",
+    "kind": "synthetic",
+    "acquisition": "local_file",
+    "captured_at": "2026-11-18T21:35:04+00:00",
+    "sha256": "f397e44ee3e5c257169fa91b7ca0b27545d1bf44749a2c2d3ffa7f62f3cb4c0d",
+    "text_sha256": "f397e44ee3e5c257169fa91b7ca0b27545d1bf44749a2c2d3ffa7f62f3cb4c0d",
+    "status": "superseded",
+    "file": "pilot.md",
+    "replaces": null
+  },
+  "S002": {
+    "origin": "materials/pilot.md",
+    "format": "md",
+    "kind": "synthetic",
+    "acquisition": "local_file",
+    "captured_at": "2026-11-18T21:35:22+00:00",
+    "sha256": "f397e44ee3e5c257169fa91b7ca0b27545d1bf44749a2c2d3ffa7f62f3cb4c0d",
+    "text_sha256": "f397e44ee3e5c257169fa91b7ca0b27545d1bf44749a2c2d3ffa7f62f3cb4c0d",
+    "status": "active",
+    "file": "pilot.md",
+    "replaces": "S001",
+    "timing": {
+      "period": {
+        "start": "2026-11-02",
+        "end": "2026-11-08"
+      },
+      "data_as_of": "2026-11-18T12:00:00+03:00",
+      "timezone": "Europe/Moscow"
+    }
+  },
+  "S003": {
+    "origin": "materials/experiment.csv",
+    "format": "csv",
+    "kind": "synthetic",
+    "acquisition": "local_file",
+    "captured_at": "2026-11-18T21:35:22+00:00",
+    "sha256": "24e090c83ecf6d566140a5d73fddf43ae2a409af7e0a10a6c02bbc04addd8a33",
+    "text_sha256": "24e090c83ecf6d566140a5d73fddf43ae2a409af7e0a10a6c02bbc04addd8a33",
+    "status": "active",
+    "file": "experiment.csv",
+    "replaces": null,
+    "timing": {
+      "period": {
+        "start": "2026-11-02",
+        "end": "2026-11-08"
+      },
+      "data_as_of": "2026-11-18T12:00:00+03:00",
+      "timezone": "Europe/Moscow"
+    }
+  },
+  "S004": {
+    "origin": "materials/support.csv",
+    "format": "csv",
+    "kind": "synthetic",
+    "acquisition": "local_file",
+    "captured_at": "2026-11-18T21:35:23+00:00",
+    "sha256": "33e3ca0c7a5711545e5dd40e01645ac90b4f4bc533f9431344da7032a42e5a36",
+    "text_sha256": "33e3ca0c7a5711545e5dd40e01645ac90b4f4bc533f9431344da7032a42e5a36",
+    "status": "active",
+    "file": "support.csv",
+    "replaces": null,
+    "timing": {
+      "period": {
+        "start": "2026-11-02",
+        "end": "2026-11-08"
+      },
+      "data_as_of": "2026-11-18T12:00:00+03:00",
+      "timezone": "Europe/Moscow"
+    }
+  },
+  "S005": {
+    "origin": "materials/product.md",
+    "format": "md",
+    "kind": "synthetic",
+    "acquisition": "local_file",
+    "captured_at": "2026-11-18T21:35:23+00:00",
+    "sha256": "6d2301160cfe33e04a526e444c4670fe89a3a865a01dfb1892e1a58542cfd83a",
+    "text_sha256": "6d2301160cfe33e04a526e444c4670fe89a3a865a01dfb1892e1a58542cfd83a",
+    "status": "active",
+    "file": "product.md",
+    "replaces": null
+  }
+}

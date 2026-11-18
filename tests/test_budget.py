@@ -100,9 +100,14 @@ class BudgetTests(unittest.TestCase):
         evidence = self.call("rates", "S001", "--numerator", "yes", "--denominator", "all", "--evidence")
         brief = dict.fromkeys("question goal audience constraints available_data".split(), "Пилот")
         brief["questions"] = ["Как оценить эффект?"]
+        brief["metrics"] = [{
+            "id": "M1", "label": "Активации", "unit": "%", "formula": {"numerator": "yes", "denominator": "all"},
+            "threshold": {"op": ">=", "value": 60},
+        }]
         recovery.save_draft(self.folder, "brief", brief)
         recovery.save_draft(self.folder, "research", {
             "comparison": "Доступны наблюдения пилота", "gaps": ["Эффект неизвестен"],
+            "metrics": {"M1": {"claim": "C1", "check": 1}},
             "claims": [{"id": "C1", "text": "Доля активаций — {{rate:1}}.", "type": "fact", "scope": "demo",
                         "limits": "Учебный пример", "refs": evidence["refs"], "rate_checks": evidence["rate_checks"]}],
         })
@@ -132,9 +137,9 @@ class BudgetTests(unittest.TestCase):
             "usage": {"prompt_tokens": 1200, "completion_tokens": 900},
         }).encode()
 
-    def test_compact_resumes_legacy_budget_with_one_request_per_checkpoint(self):
-        options = self.seed_compact_case()
-        strategy = {
+    @staticmethod
+    def strategy_fixture():
+        return {
             "option": "O3", "rationale": "Проверим эффект пилота", "revisit": "Проверить результат",
             "assumptions": ["Порог уточнить по базе сравнения"],
             "product": {**dict.fromkeys("audience job alternatives direction tradeoffs economics".split(), "Пилот"),
@@ -146,6 +151,10 @@ class BudgetTests(unittest.TestCase):
             "test": {**dict.fromkeys("expected metric denominator control window threshold guardrails".split(), "Пилот"),
                      "claims": ["C1"]},
         }
+
+    def test_compact_resumes_legacy_budget_with_one_request_per_checkpoint(self):
+        options = self.seed_compact_case()
+        strategy = self.strategy_fixture()
         with budget.connection(self.folder, write=True) as conn:
             conn.execute("""
                 CREATE TABLE qwen_runs (
@@ -168,23 +177,36 @@ class BudgetTests(unittest.TestCase):
             self.assertEqual(payload["max_completion_tokens"], 4096)
             self.assertEqual(payload["chat_template_kwargs"], {"enable_thinking": False})
             self.assertNotIn("tools", payload)
-            self.assertNotIn("Подробности исходника", body.decode())
             context = json.loads(payload["messages"][1]["content"])
+            if "ticket" in context:
+                self.assertEqual(len(payload["messages"]), 2)
+                self.assertNotIn("saved", context)
+                self.assertNotIn("journal", context)
+                self.assertEqual(context["sources"]["S001"]["lines"]["2"], "48,80,Подробности исходника")
+                self.assertTrue(context["metrics"][0]["passes"])
+                result = {field: context[field] for field in ("case", "version", "ticket")}
+                return self.compact_reply({**result, "verdict": "clear", "findings": []})
+            self.assertNotIn("Подробности исходника", body.decode())
             self.assertEqual(context["saved"]["research"]["claims"][0]["text"], "Доля активаций — 48/80 = 60%.")
+            self.assertEqual(context["decision_metrics"][0]["value"], "48/80 = 60%")
+            self.assertTrue(context["decision_metrics"][0]["passes"])
             seen.append(list(context["saved"]))
             return self.compact_reply(strategy if "options" in context["saved"] else options)
 
         result, calls = self.compact(complete)
-        self.assertEqual(calls, 2)
+        self.assertEqual(calls, 3)
         self.assertEqual(seen, [["brief", "research"], ["brief", "research", "options"]])
-        self.assertEqual([run["outcome"] for run in result["runs"]], ["checkpoint_saved"] * 2)
+        self.assertEqual([run["outcome"] for run in result["runs"]], ["checkpoint_saved", "checkpoint_saved", "review_recorded"])
         self.assertEqual(result["budget"]["decision"], "human_decision")
-        self.assertEqual(result["budget"]["known_spent_tokens"], 153_208)
-        self.assertEqual(result["usage"]["measured_requests"], 10)
+        self.assertEqual(result["budget"]["known_spent_tokens"], 155_308)
+        self.assertEqual(result["usage"]["measured_requests"], 11)
         self.assertEqual(self.call("status")["checkpoints"], ["brief", "research", "options", "strategy"])
         records = budget.runs(self.folder)
-        self.assertEqual([record["mode"] for record in records], ["qwen_code", "compact", "compact"])
+        self.assertEqual([record["mode"] for record in records], ["qwen_code", "compact", "compact", "strategy_review"])
         self.assertEqual(budget.stage_samples(self.folder, records, "options", budget.DEFAULT_MODEL), [])
+        self.assertEqual(result["usage"]["by_stage"]["strategy_review"]["measured_requests"], 1)
+        _, repeat_calls = self.compact(complete)
+        self.assertEqual(repeat_calls, 0)
 
     def test_compact_reports_exhausted_output_without_a_draft(self):
         self.seed_compact_case()

@@ -1,5 +1,6 @@
 """Transactional case checkpoints and their dependency history."""
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -30,6 +31,10 @@ def dump(value):
 def load_json(path):
     path = Path(path)
     need(path.stat().st_size <= 1_000_000, "JSON-артефакт больше 1 МБ.")
+    return parse_json(path.read_text(encoding="utf-8-sig"))
+
+
+def parse_json(text):
     def reject_constant(value):
         raise ValueError(f"Не допускается числовое значение {value}")
 
@@ -40,7 +45,7 @@ def load_json(path):
             result[key] = value
         return result
 
-    return json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=reject_constant,
+    return json.loads(text, parse_constant=reject_constant,
                       object_pairs_hook=unique_fields)
 
 
@@ -156,6 +161,28 @@ def decision_summary(state):
     }
 
 
+def pending_source_reviews(state):
+    return [key for key, source in state["sources"].items()
+            if source["status"] == "active" and source.get("review_status") == "pending"]
+
+
+def strategy_review_status(state):
+    saved = state["checkpoints"]
+    if "strategy" not in saved:
+        return None
+    # Snapshots are immutable. Bind a review to its actual inputs across pauses and restarts.
+    cited = {ref["source"] for claim in saved["research"]["claims"] for ref in claim["refs"]}
+    inputs = [state["case"], analysis_context(state),
+              [saved[key] for key in STAGES[:4]],
+              {key: {field: value for field, value in state["sources"][key].items()
+                     if field in ("text_sha256", "kind", "timing", "sheet", "format", "origin", "status")}
+               for key in cited}]
+    encoded = json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    version = hashlib.sha256(encoded).hexdigest()
+    record = state.get("strategy_reviews", {}).get(version, {"status": "pending"})
+    return {"version": version, **record}
+
+
 def summary(state):
     return {
         "case": state["case"],
@@ -164,8 +191,10 @@ def summary(state):
         "next": next_stage(state),
         "checkpoints": list(state["checkpoints"]),
         "active_sources": [key for key, source in state["sources"].items() if source["status"] == "active"],
+        "pending_source_reviews": pending_source_reviews(state),
         "impact": state["impact"],
         "active_decision": decision_summary(state),
+        **({"strategy_review": strategy_review_status(state)} if "strategy" in state["checkpoints"] else {}),
     }
 
 
@@ -173,11 +202,18 @@ def archive(state, stage, reason):
     start = STAGES.index(stage)
     previous = {key: state["checkpoints"][key] for key in STAGES[start:] if key in state["checkpoints"]}
     if previous:
-        state["history"].append({
+        if "strategy" in previous:
+            review = strategy_review_status(state)
+            if review["status"] == "in_progress":
+                state["strategy_reviews"][review["version"]] = {"status": "pending"}
+        archived = {
             "revision": state["revision"], "at": utc_now(), "reason": reason,
             "checkpoints": previous, "tracking": state["tracking"].copy() if "decision" in previous else {},
             "analysis": analysis_context(state),
-        })
+        }
+        if "research" in previous and "brief" not in previous:
+            archived["brief"] = state["checkpoints"]["brief"]
+        state["history"].append(archived)
         for key in previous:
             del state["checkpoints"][key]
 
@@ -195,7 +231,50 @@ def activate_decision(state, artifact):
         state["impact"]["review_required"] = False
 
 
-def invalidate_for_source(state, source_id, replaced=None):
+def source_review_archive(state):
+    if state["impact"] is None:
+        return None
+    revision = state["impact"]["baseline_revision"]
+    return next((entry for entry in reversed(state["history"]) if entry["revision"] == revision), None)
+
+
+def archived_brief(state, archive):
+    brief = archive.get("brief", archive["checkpoints"].get("brief"))
+    if brief is not None:
+        return brief
+    # Earlier archives omitted the brief when only later stages were reopened.
+    edited = any(entry["revision"] > archive["revision"] and entry["action"] == "save"
+                 and entry.get("stage") == "brief" for entry in state["journal"])
+    return None if edited else state["checkpoints"].get("brief")
+
+
+def source_review_baseline(state):
+    saved = state["checkpoints"]
+    if "research" in saved:
+        return saved
+    archived = source_review_archive(state)
+    if archived is None:
+        return saved
+    brief = archived.get("brief", saved.get("brief", {}))
+    return {"brief": brief, **archived["checkpoints"]}
+
+
+def register_source_change(state, source_id, replaced=None):
+    has_research = "research" in state["checkpoints"]
+    if replaced:
+        baseline = source_review_baseline(state)
+        claims = baseline.get("research", {}).get("claims", [])
+        cited = any(ref["source"] == replaced for claim in claims for ref in claim["refs"])
+        changes = (state["impact"] or {}).get("source_changes", [])
+        part_of_review = not has_research and any(change["source"] == replaced for change in changes)
+        if cited or part_of_review:
+            invalidate_for_source(state, source_id, replaced)
+            return
+    if source_id and has_research:
+        state["sources"][source_id]["review_status"] = "pending"
+
+
+def invalidate_for_source(state, source_id, replaced=None, *, claims=(), questions=(), metrics=(), reason=None):
     saved = state["checkpoints"]
     impact = state["impact"]
     if "research" in saved:
@@ -207,21 +286,37 @@ def invalidate_for_source(state, source_id, replaced=None):
             "review_required": True,
         }
         state["impact"] = impact
-        archive(state, "research", f"Изменение источников: {source_id or replaced}")
+        archive(state, "research", reason or f"Изменение источников: {source_id or replaced}")
     elif impact is None:
         return
-    baseline = next(item["checkpoints"] for item in reversed(state["history"])
-                    if item["revision"] == impact["baseline_revision"])
-    impact["source_changes"].append({"source": source_id, "replaced": replaced})
+    baseline = source_review_baseline(state)
+    change = {"source": source_id, "replaced": replaced}
+    if reason is not None:
+        change.update(reason=reason, claims=list(claims))
+    if questions:
+        change["questions"] = list(questions)
+    if metrics:
+        change["metrics"] = list(metrics)
+    impact["source_changes"].append(change)
     retired = {change["replaced"] for change in impact["source_changes"]}
+    flagged = {key for change in impact["source_changes"] for key in change.get("claims", [])}
     affected = [
         claim["id"] for claim in baseline["research"]["claims"]
-        if any(ref["source"] in retired for ref in claim["refs"])
+        if claim["id"] in flagged or any(ref["source"] in retired for ref in claim["refs"])
     ]
     options = baseline.get("options", {}).get("options", [])
     strategy = baseline.get("strategy", {})
     impacted = set(affected)
     impact["affected_claims"] = affected
+    bindings = baseline["research"].get("metrics", {})
+    related_metrics = [
+        key for key, binding in bindings.items()
+        if isinstance(binding, dict) and binding.get("claim") in impacted
+    ] if isinstance(bindings, dict) else []
+    metrics = [key for change in impact["source_changes"] for key in change.get("metrics", [])]
+    questions = [key for change in impact["source_changes"] for key in change.get("questions", [])]
+    impact["affected_metrics"] = list(dict.fromkeys(related_metrics + metrics))
+    impact["affected_questions"] = list(dict.fromkeys(questions))
     impact["affected_options"] = [item["id"] for item in options if set(item["claims"]) & impacted]
     impact["affected_strategy_sections"] = [
         key for key, field in (("product", "claims"), ("communication", "proof_claims"), ("test", "claims"))
