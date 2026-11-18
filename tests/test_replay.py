@@ -10,6 +10,11 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 class ReplayTests(unittest.TestCase):
+    def test_project_includes_materials_researcher_profile(self):
+        profile = REPO / '.qwen/agents/materials-researcher.md'
+        self.assertTrue(profile.is_file(), f'Missing Qwen Code project agent: {profile.name}')
+        self.assertTrue(profile.read_text(encoding='utf-8').strip(), f'Empty Qwen Code project agent: {profile.name}')
+
     def test_reserve_replays_verified_source_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(
