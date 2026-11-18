@@ -45,7 +45,7 @@ def usage(folder, *, summary_only=False):
         **totals(records),
         "by_stage": {
             stage: totals([row for row in records if row["stage"] == stage])
-            for stage in state.STAGES if any(row["stage"] == stage for row in records)
+            for stage in (*state.STAGES, "strategy_review") if any(row["stage"] == stage for row in records)
         },
         **({} if summary_only else {"runs": records}),
     }
@@ -69,6 +69,13 @@ def stage_samples(folder, records, stage, model):
     return sorted(samples)
 
 
+def work_stage(data):
+    stage = state.next_stage(data)
+    if stage == "decision" and state.strategy_review_status(data)["status"] == "pending":
+        return "strategy_review"
+    return stage
+
+
 def plan(folder, data, *, limit, reserve, estimate, model):
     state.need(limit > 0 and reserve >= 0 and (estimate is None or estimate > 0),
                "Нужен положительный лимит, неотрицательный резерв и положительная оценка.")
@@ -76,7 +83,7 @@ def plan(folder, data, *, limit, reserve, estimate, model):
     recorded = totals(records)
     spent = recorded["input_tokens"] + recorded["output_tokens"]
     remaining = max(0, limit - spent - recorded["reserved_tokens"])
-    stage = state.next_stage(data)
+    stage = work_stage(data)
     samples = (stage_samples(folder, records, stage, model)
                if estimate is None and stage in state.STAGES[:-1] else [])
     if estimate is not None:
@@ -88,7 +95,8 @@ def plan(folder, data, *, limit, reserve, estimate, model):
         estimate_source = None
     required = estimate + reserve if estimate is not None else None
     if stage == "decision":
-        decision = "human_decision"
+        status = state.strategy_review_status(data)["status"]
+        decision = "human_decision" if status == "clear" else f"review_{status}"
     elif stage == "monitor":
         decision = "complete"
     elif required is None:
@@ -132,7 +140,11 @@ def reserve_request(folder, run_id, stage, limit, tokens, *, expect=None):
         data = json.loads(conn.execute("SELECT payload FROM snapshot WHERE id=1").fetchone()[0])
         if expect is not None and data["revision"] != expect:
             return {"reason": "case_changed", "expected_revision": expect, "revision": data["revision"]}
-        if state.next_stage(data) != stage:
+        expected = state.next_stage(data)
+        if stage == "strategy_review" and expected == "decision":
+            if state.strategy_review_status(data)["status"] == "in_progress":
+                expected = stage
+        if expected != stage:
             return {"reason": "checkpoint_reached"}
         if data["paused"]:
             return {"reason": "case_paused"}

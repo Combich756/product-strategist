@@ -6,7 +6,7 @@ from html import escape
 from .analysis import format_rate
 from .checkpoints import cell_checks, decision_metrics, rate_checks, render_claim_text, research_questions
 from .sources import line_location, metadata, source_lines
-from .state import analysis_context, archived_brief, followup, need, next_stage, pending_source_reviews, source_review_archive
+from .state import analysis_context, archived_brief, followup, need, next_stage, pending_source_reviews, source_review_archive, strategy_review_status
 
 
 def claim_evidence(state, claim_id, revision):
@@ -254,6 +254,20 @@ def report(state, as_of):
             lines += ["", "Допущения и оценки", "", *[f"- {x}" for x in saved["options"]["assumptions"]]]
     if "strategy" in saved:
         strategy = saved["strategy"]
+        review = strategy_review_status(state)
+        labels = {
+            "pending": "Проверка черновика ожидает назначения", "in_progress": "Идёт проверка черновика",
+            "clear": "Существенных замечаний не обнаружено", "changes_requested": "Требуются исправления",
+            "inconclusive": "Для проверки недостаточно оснований",
+        }
+        lines += ["", f"**Независимая проверка стратегии.** {labels[review['status']]}."]
+        result = review.get("result", {})
+        if "reason" in result:
+            lines.append(inline_text(result["reason"]))
+        for item in result.get("findings", []):
+            lines.append(f"- **{inline_text(item['field'])}.** «{inline_text(item['statement'])}». "
+                         f"{inline_text(item['reason'])} ({', '.join(map(inline_text, item['basis']))}). "
+                         f"Правка — {inline_text(item['fix'])}")
         lines += ["", "## Рекомендация", "", f"**{strategy['option']}.** {strategy['rationale']}",
                   "", f"**Пересмотр.** {strategy['revisit']}", "", "### Продукт", ""]
         items(lines, strategy["product"], {"audience": "Аудитория", "job": "Задача",

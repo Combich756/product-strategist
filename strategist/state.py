@@ -1,5 +1,6 @@
 """Transactional case checkpoints and their dependency history."""
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -30,6 +31,10 @@ def dump(value):
 def load_json(path):
     path = Path(path)
     need(path.stat().st_size <= 1_000_000, "JSON-артефакт больше 1 МБ.")
+    return parse_json(path.read_text(encoding="utf-8-sig"))
+
+
+def parse_json(text):
     def reject_constant(value):
         raise ValueError(f"Не допускается числовое значение {value}")
 
@@ -40,7 +45,7 @@ def load_json(path):
             result[key] = value
         return result
 
-    return json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=reject_constant,
+    return json.loads(text, parse_constant=reject_constant,
                       object_pairs_hook=unique_fields)
 
 
@@ -161,6 +166,23 @@ def pending_source_reviews(state):
             if source["status"] == "active" and source.get("review_status") == "pending"]
 
 
+def strategy_review_status(state):
+    saved = state["checkpoints"]
+    if "strategy" not in saved:
+        return None
+    # Snapshots are immutable. Bind a review to its actual inputs across pauses and restarts.
+    cited = {ref["source"] for claim in saved["research"]["claims"] for ref in claim["refs"]}
+    inputs = [state["case"], analysis_context(state),
+              [saved[key] for key in STAGES[:4]],
+              {key: {field: value for field, value in state["sources"][key].items()
+                     if field in ("text_sha256", "kind", "timing", "sheet", "format", "origin", "status")}
+               for key in cited}]
+    encoded = json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    version = hashlib.sha256(encoded).hexdigest()
+    record = state.get("strategy_reviews", {}).get(version, {"status": "pending"})
+    return {"version": version, **record}
+
+
 def summary(state):
     return {
         "case": state["case"],
@@ -172,6 +194,7 @@ def summary(state):
         "pending_source_reviews": pending_source_reviews(state),
         "impact": state["impact"],
         "active_decision": decision_summary(state),
+        **({"strategy_review": strategy_review_status(state)} if "strategy" in state["checkpoints"] else {}),
     }
 
 
@@ -179,6 +202,10 @@ def archive(state, stage, reason):
     start = STAGES.index(stage)
     previous = {key: state["checkpoints"][key] for key in STAGES[start:] if key in state["checkpoints"]}
     if previous:
+        if "strategy" in previous:
+            review = strategy_review_status(state)
+            if review["status"] == "in_progress":
+                state["strategy_reviews"][review["version"]] = {"status": "pending"}
         archived = {
             "revision": state["revision"], "at": utc_now(), "reason": reason,
             "checkpoints": previous, "tracking": state["tracking"].copy() if "decision" in previous else {},

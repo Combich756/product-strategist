@@ -15,7 +15,7 @@ from pathlib import Path
 from time import perf_counter
 from urllib.parse import unquote
 
-from . import analysis, budget, checkpoints, privacy, qwen, recovery, sources, state, timing
+from . import analysis, budget, checkpoints, privacy, qwen, recovery, sources, state, strategy_review, timing
 from .report import claim_evidence, evidence_context, report
 
 
@@ -142,6 +142,26 @@ def review_source(folder, args):
         state.event(data, "review-source", source=args.source, outcome=args.outcome,
                     reason=args.reason, **links)
         return state.summary(data)
+
+
+def review_strategy(folder, args):
+    writing = bool(args.begin or args.record or args.interrupt)
+    if writing:
+        state.need(not os.environ.get(qwen.RUN_ENV),
+                   "Завершите генерацию этапа перед независимой проверкой.")
+    result = state.load_json(args.record) if args.record else None
+    with state.case(folder, write=writing) as data:
+        if args.begin:
+            return strategy_review.begin(data)
+        if args.record:
+            return strategy_review.record(data, result)
+        if args.interrupt:
+            return strategy_review.interrupt(data, args.interrupt)
+        review = strategy_review.current(data)
+        if args.packet:
+            state.need(review["status"] == "in_progress", "Сначала назначьте проверку через --begin.")
+            return strategy_review.packet(data, review)
+        return review
 
 
 def save(folder, args):
@@ -310,6 +330,11 @@ def inspect(folder, args):
                 return budget.plan(folder, data, limit=args.limit, reserve=args.reserve,
                                    estimate=args.estimate, model=args.model)
             case "report":
+                if args.for_owner:
+                    review = strategy_review.current(data)
+                    state.need(review["status"] == "clear",
+                               f"Рекомендация ещё не готова к показу ({review['status']}). "
+                               "Сверьте результат через review-strategy.")
                 return report(data, args.as_of)
 
 
@@ -405,10 +430,18 @@ def parser():
     sub = command("check", "Проверить черновик без сохранения и без модели")
     sub.add_argument("stage", choices=state.STAGES)
     sub.add_argument("input", help="Путь к JSON-черновику")
+    sub = command("review-strategy", "Независимая проверка сохранённой стратегии")
+    action = sub.add_mutually_exclusive_group()
+    action.add_argument("--begin", action="store_true", help="Один раз выдать пакет для отдельного проверяющего")
+    action.add_argument("--packet", action="store_true", help="Прочитать пакет текущего назначения")
+    action.add_argument("--record", type=Path, metavar="JSON", help="Зафиксировать ответ проверяющего")
+    action.add_argument("--interrupt", metavar="TICKET", help="Закрыть оборванное назначение для явного повтора")
     for name, help_ in (("report", "Вывести отчёт Markdown"), ("followup", "Проверить сроки обязательств")):
         sub = command(name, help_)
         sub.add_argument("--as-of", type=lambda value: date.fromisoformat(value).isoformat(),
                          default=date.today().isoformat())
+        if name == "report":
+            sub.add_argument("--for-owner", action="store_true", help="Показать стратегию после вердикта clear")
     sub = command("context", "Показать сохранённый контекст")
     scope = sub.add_mutually_exclusive_group()
     scope.add_argument("--compact", action="store_true", help="Показать состояние без содержимого этапов")
@@ -449,7 +482,7 @@ def main(argv=None):
     args = parser().parse_args(argv)
     handlers = {
         "allow-web": allow_web, "ingest": ingest, "revoke": revoke, "review-source": review_source,
-        "save": save, "decide": save,
+        "save": save, "decide": save, "review-strategy": review_strategy,
         "reopen": reopen, "pause": pause_or_resume, "resume": pause_or_resume, "track": track, "log": log,
         "qwen-run": qwen.run,
     }

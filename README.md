@@ -171,12 +171,16 @@ python3 -m strategist ingest retention --url https://support.apple.com/en-us/118
 | Формулировка и основания вывода | `python3 -m strategist claim demo C1` для текущей версии и `python3 -m strategist claim demo C1 --revision 14` для архивной |
 | Проверить JSON без записи в кейс | `python3 -m strategist check demo strategy demo/checkpoints/strategy_v2.json` |
 | Продолжить после сбоя | `python3 -m strategist recover demo` |
-| Читаемый отчёт | `python3 -m strategist report demo` |
+| Состояние независимой проверки стратегии | `python3 -m strategist review-strategy demo` |
+| Проверенная рекомендация для владельца | `python3 -m strategist report demo --for-owner` |
+| Рабочий отчёт | `python3 -m strategist report demo` |
 | Пауза и продолжение | `python3 -m strategist pause demo` и `python3 -m strategist resume demo` |
 | Оценка добавленного материала | `python3 -m strategist review-source demo ИСТОЧНИК --outcome relevant --claims C1 --reason "Изменился показатель" --expect РЕВИЗИЯ` |
 | Архив и действия | `python3 -m strategist history demo` и `python3 -m strategist journal demo` |
 | Действующее решение, статусы и сроки обязательств | `python3 -m strategist followup demo --as-of 2026-11-08` |
 | Запуск тестов после установки пакетов | `python3 -m unittest discover -s tests -v` |
+
+После сохранения стратегии отдельный проверяющий сверяет выбранное действие, пороги и обещания с основаниями. Владелец получает рекомендацию после разбора замечаний. [Как работает проверка стратегии](docs/STRATEGY_REVIEW.md)
 
 Для показателей, от которых зависит выбор, зафиксируйте формулы и пороги в брифе. Исследование связывает каждый показатель с проверенным фактом или описывает пробел. Отчёт автоматически выводит рассчитанные значения, пороги и строки источников. Доли с вычитанием счётчика поддерживает `rates --subtract`. [Схема метрик](agent/SCHEMA.md#метрики-решения)
 

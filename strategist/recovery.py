@@ -151,8 +151,18 @@ def recover(folder, data):
         except (state.UserError, OSError, ValueError, OverflowError, KeyError, RecursionError, csv.Error) as error:
             item.update(valid=False, error=str(error))
         drafts.append(item)
+    summary = state.summary(data)
+    review = summary.get("strategy_review")
+    if review and review["status"] == "in_progress":
+        receipt = folder / "reviews" / (review["ticket"] + ".json")
+        if receipt.is_file() and not receipt.is_symlink() and not receipt.parent.is_symlink():
+            review["result_file"] = str(receipt)
+            review["suggested_command"] = shlex.join([
+                "python3", "-m", "strategist", "--root", str(folder.parent),
+                "review-strategy", data["case"], "--record", str(receipt),
+            ])
     return {
-        **state.summary(data), "drafts": drafts,
+        **summary, "drafts": drafts,
         "guidance": "Сверьте черновик и основания. Сохранение этапа не утверждает решение. "
                     "При паузе сначала resume; после любой записи обновите ревизию. "
                     "decide выполняется только после явного выбора человека.",

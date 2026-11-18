@@ -15,6 +15,15 @@ class ReplayTests(unittest.TestCase):
         self.assertTrue(profile.is_file(), f'Missing Qwen Code project agent: {profile.name}')
         self.assertTrue(profile.read_text(encoding='utf-8').strip(), f'Empty Qwen Code project agent: {profile.name}')
 
+    def test_ships_the_strategy_reviewer_contract_and_limited_profiles(self):
+        qwen = (REPO / ".qwen/agents/strategy-reviewer.md").read_text(encoding="utf-8")
+        header = qwen.split("---", 2)[1]
+        self.assertEqual(header.split("tools:", 1)[1].strip(), "- read_file")
+        codex = (REPO / ".codex/agents/strategy-reviewer.toml").read_text(encoding="utf-8")
+        self.assertIn('name = "strategy_reviewer"', codex)
+        self.assertIn("shell_tool = false", codex)
+        self.assertTrue((REPO / "strategist/strategy_reviewer.md").is_file())
+
     def test_reserve_replays_verified_source_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(
